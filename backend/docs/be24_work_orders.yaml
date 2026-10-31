@@ -1,0 +1,249 @@
+openapi: 3.0.3
+info:
+  title: Work Orders API — BE-24
+  description: >
+    Work Orders API for Jains Kences Retreat Apartment Association Management
+    System. Lets the Apartment Manager create, assign, track, and complete
+    reactive and preventive maintenance work orders.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Maintenance
+    description: Work orders and maintenance scheduling
+
+security:
+  - BearerAuth: []
+
+paths:
+
+  /maintenance/work-orders:
+    post:
+      tags: [Maintenance]
+      summary: Create work order
+      description: >
+        Creates a reactive or preventive work order. Requires admin, president,
+        or secretary role. If assigned_to is provided the initial status is
+        'assigned', otherwise 'open'.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkOrderCreate" }
+            example:
+              title: "Elevator Block B — halting between floors"
+              description: "Residents reported lift stopping between 3rd and 4th floor twice this week."
+              asset_id: "AST-ELV-B"
+              type: "reactive"
+              priority: "critical"
+              due_date: "2026-07-21"
+              assigned_to: null
+      responses:
+        "201":
+          description: Work order created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkOrderOut" }
+        "401": { description: Unauthenticated }
+        "403": { description: Insufficient role }
+        "404": { description: Staff member not found }
+        "422": { description: Validation error }
+
+    get:
+      tags: [Maintenance]
+      summary: List work orders
+      description: Paginated work order list with optional filters.
+      parameters:
+        - { name: status,      in: query, schema: { type: string }, description: "open / assigned / in_progress / completed" }
+        - { name: type,        in: query, schema: { type: string }, description: "reactive / preventive" }
+        - { name: priority,    in: query, schema: { type: string }, description: "low / medium / high / critical" }
+        - { name: assigned_to, in: query, schema: { type: string }, description: "staff_id" }
+        - { name: skip,        in: query, schema: { type: integer, default: 0 } }
+        - { name: limit,       in: query, schema: { type: integer, default: 50, maximum: 200 } }
+      responses:
+        "200":
+          description: Work orders returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/WorkOrderOut" }
+        "401": { description: Unauthenticated }
+
+  /maintenance/work-orders/stats:
+    get:
+      tags: [Maintenance]
+      summary: Work order board stats
+      description: Returns total, open, overdue, and completed work order counts.
+      responses:
+        "200":
+          description: Stats returned
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkOrderStatsOut" }
+        "401": { description: Unauthenticated }
+
+  /maintenance/work-orders/{work_order_id}:
+    get:
+      tags: [Maintenance]
+      summary: Get work order
+      parameters:
+        - { name: work_order_id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Work order returned
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkOrderOut" }
+        "401": { description: Unauthenticated }
+        "404": { description: Work order not found }
+
+  /maintenance/work-orders/{work_order_id}/assign:
+    put:
+      tags: [Maintenance]
+      summary: Assign work order
+      description: >
+        Assigns a work order to a staff member. If the order is currently
+        'open', status automatically advances to 'assigned'.
+      parameters:
+        - { name: work_order_id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkOrderAssign" }
+            example:
+              staff_id: "some-staff-uuid"
+      responses:
+        "200":
+          description: Work order assigned
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkOrderOut" }
+        "401": { description: Unauthenticated }
+        "403": { description: Insufficient role }
+        "404": { description: Work order or staff not found }
+
+  /maintenance/work-orders/{work_order_id}/status:
+    put:
+      tags: [Maintenance]
+      summary: Update work order status
+      description: >
+        Advances the work order one step: open → assigned → in_progress →
+        completed. Only forward one-step transitions are allowed. Completing
+        requires an outcome note.
+      parameters:
+        - { name: work_order_id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkOrderStatusUpdate" }
+            example:
+              status: "completed"
+              outcome: "Replaced worn gasket; pump running within normal pressure."
+      responses:
+        "200":
+          description: Status updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkOrderOut" }
+        "400": { description: Invalid transition or missing outcome }
+        "401": { description: Unauthenticated }
+        "404": { description: Work order not found }
+
+  /maintenance/assets/{asset_id}/history:
+    get:
+      tags: [Maintenance]
+      summary: Asset maintenance history
+      description: Returns completed work orders for a given asset, newest first.
+      parameters:
+        - { name: asset_id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: History returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/WorkOrderOut" }
+        "401": { description: Unauthenticated }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+
+    WorkOrderCreate:
+      type: object
+      required: [title]
+      properties:
+        title:       { type: string, maxLength: 150 }
+        description: { type: string, maxLength: 2000, nullable: true }
+        asset_id:    { type: string, maxLength: 50, nullable: true }
+        type:
+          type: string
+          enum: [reactive, preventive]
+          default: reactive
+        priority:
+          type: string
+          enum: [low, medium, high, critical]
+          default: medium
+        due_date:    { type: string, format: date, nullable: true }
+        assigned_to: { type: string, nullable: true, description: "staff_id" }
+        outcome:     { type: string, maxLength: 1000, nullable: true }
+
+    WorkOrderAssign:
+      type: object
+      required: [staff_id]
+      properties:
+        staff_id: { type: string }
+
+    WorkOrderStatusUpdate:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [open, assigned, in_progress, completed]
+        outcome: { type: string, maxLength: 1000, nullable: true }
+
+    WorkOrderOut:
+      type: object
+      properties:
+        work_order_id: { type: string }
+        title:         { type: string }
+        description:   { type: string, nullable: true }
+        asset_id:      { type: string, nullable: true }
+        type:          { type: string, enum: [reactive, preventive] }
+        priority:      { type: string, enum: [low, medium, high, critical] }
+        status:        { type: string, enum: [open, assigned, in_progress, completed] }
+        assigned_to:   { type: string, nullable: true }
+        assigned_staff: { nullable: true }
+        due_date:      { type: string, format: date, nullable: true }
+        completed_at:  { type: string, format: date-time, nullable: true }
+        outcome:       { type: string, nullable: true }
+        created_by:    { type: string, nullable: true }
+        created_at:    { type: string, format: date-time }
+        updated_at:    { type: string, format: date-time }
+        is_overdue:    { type: boolean }
+
+    WorkOrderStatsOut:
+      type: object
+      properties:
+        total:     { type: integer }
+        open:      { type: integer }
+        overdue:   { type: integer }
+        completed: { type: integer }
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail: { type: string }

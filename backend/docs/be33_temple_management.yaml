@@ -1,0 +1,465 @@
+openapi: 3.0.3
+info:
+  title: Temple Management API — BE-33
+  description: >
+    Temple Management API for the Jains Kences Retreat Apartment Association
+    Management System. Books seva/pooja slots, records donations, and manages
+    temple events and rsvp/volunteer signups.
+
+    Slot conflicts: a seva booking is rejected with 409 if another *confirmed*
+    booking already holds the same seva_type + booking_date + slot. Cancelling
+    a booking frees the slot for re-booking.
+
+    Donations: either `resident_id` or `donor_name` must be supplied — the
+    latter covers anonymous or non-resident donors.
+
+    Event signups: a resident may hold both an `rsvp` and a `volunteer`
+    signup for the same event, but not two of the same type, and only while
+    the event is `upcoming` and its date hasn't passed.
+
+    Errors: 404 unknown resident/booking/donation/event, 409 slot conflict /
+    duplicate cancel / duplicate signup, 400 signup on a closed or past
+    event, 422 invalid input.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Temple
+    description: Seva bookings, donations, and temple events/volunteer signups
+
+paths:
+
+  /temple/sevas:
+    post:
+      tags: [Temple]
+      summary: Book a seva/pooja slot
+      description: >
+        Books a seva (monthly_pooja, abhishekam, archana, sandhana_kaapu)
+        against a date and slot. Rejected if another confirmed booking
+        already holds the same seva_type + booking_date + slot.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TempleBookingCreate" }
+            examples:
+              archana:
+                summary: Book an archana slot
+                value:
+                  resident_id: "8f1c2b91-0a63-4c4e-9a2f-5c1b7e0d3a11"
+                  seva_type: "archana"
+                  booking_date: "2026-09-01"
+                  slot: "morning"
+                  amount: "101.00"
+      responses:
+        "201":
+          description: Booking confirmed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TempleBookingOut" }
+        "404":
+          description: Resident not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "409":
+          description: Slot already confirmed by another booking
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "Slot already booked: archana on 2026-09-01 (morning) is already confirmed."
+        "422":
+          description: Validation error — past booking_date, invalid seva_type, or amount <= 0
+    get:
+      tags: [Temple]
+      summary: List seva bookings
+      parameters:
+        - name: resident_id
+          in: query
+          required: false
+          schema: { type: string }
+        - name: seva_type
+          in: query
+          required: false
+          schema: { type: string, enum: [monthly_pooja, abhishekam, archana, sandhana_kaapu] }
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [confirmed, cancelled] }
+        - name: date_from
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: date_to
+          in: query
+          required: false
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: List of bookings
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/TempleBookingOut" }
+
+  /temple/sevas/{booking_id}:
+    get:
+      tags: [Temple]
+      summary: Get a seva booking
+      parameters:
+        - name: booking_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The booking
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TempleBookingOut" }
+        "404":
+          description: Booking not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+  /temple/sevas/{booking_id}/cancel:
+    post:
+      tags: [Temple]
+      summary: Cancel a seva booking
+      description: Cancels a confirmed booking, freeing its slot for re-booking.
+      parameters:
+        - name: booking_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Booking cancelled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TempleBookingOut" }
+        "404":
+          description: Booking not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "409":
+          description: Booking is already cancelled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+  /temple/donations:
+    post:
+      tags: [Temple]
+      summary: Record a donation
+      description: >
+        Records a donation. Either `resident_id` or `donor_name` must be
+        provided — anonymous/non-resident donors supply `donor_name` only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TempleDonationCreate" }
+            examples:
+              resident_donation:
+                summary: Donation from a resident
+                value:
+                  resident_id: "8f1c2b91-0a63-4c4e-9a2f-5c1b7e0d3a11"
+                  amount: "501.00"
+                  purpose: "annadanam"
+              anonymous_donation:
+                summary: Anonymous donation
+                value:
+                  donor_name: "Anonymous Well-wisher"
+                  amount: "1001.00"
+      responses:
+        "201":
+          description: Donation recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TempleDonationOut" }
+        "404":
+          description: resident_id supplied but not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "422":
+          description: Validation error — amount <= 0, or neither resident_id nor donor_name given
+    get:
+      tags: [Temple]
+      summary: List donations
+      parameters:
+        - name: resident_id
+          in: query
+          required: false
+          schema: { type: string }
+        - name: purpose
+          in: query
+          required: false
+          schema: { type: string, enum: [general, annadanam, festival, renovation, other] }
+        - name: date_from
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: date_to
+          in: query
+          required: false
+          schema: { type: string, format: date }
+      responses:
+        "200":
+          description: List of donations
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/TempleDonationOut" }
+
+  /temple/donations/{donation_id}:
+    get:
+      tags: [Temple]
+      summary: Get a donation
+      parameters:
+        - name: donation_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The donation
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TempleDonationOut" }
+        "404":
+          description: Donation not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+  /temple/events:
+    post:
+      tags: [Temple]
+      summary: Create a temple event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TempleEventCreate" }
+      responses:
+        "201":
+          description: Event created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TempleEventOut" }
+        "422":
+          description: Validation error
+    get:
+      tags: [Temple]
+      summary: List temple events
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [upcoming, ongoing, completed, cancelled] }
+        - name: date_from
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+        - name: date_to
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: List of events
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/TempleEventOut" }
+
+  /temple/events/{event_id}:
+    get:
+      tags: [Temple]
+      summary: Get a temple event
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The event
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TempleEventOut" }
+        "404":
+          description: Event not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+  /temple/events/{event_id}/signup:
+    post:
+      tags: [Temple]
+      summary: Sign up for a temple event (rsvp or volunteer)
+      description: >
+        Records a resident's rsvp/volunteer signup for an event. A resident
+        may hold both an rsvp and a volunteer signup for the same event, but
+        not two of the same type. Rejected once the event is no longer
+        upcoming or has already taken place.
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TempleEventSignupCreate" }
+            examples:
+              volunteer:
+                summary: Volunteer for an event
+                value:
+                  resident_id: "8f1c2b91-0a63-4c4e-9a2f-5c1b7e0d3a11"
+                  type: "volunteer"
+      responses:
+        "201":
+          description: Signup recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TempleEventSignupOut" }
+        "400":
+          description: Event closed or already occurred
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "404":
+          description: Event or resident not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "409":
+          description: Resident already has this type of signup for the event
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "422":
+          description: Validation error — invalid type value
+
+  /temple/events/{event_id}/signups:
+    get:
+      tags: [Temple]
+      summary: List signups for a temple event
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: List of signups
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/TempleEventSignupOut" }
+        "404":
+          description: Event not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+components:
+  schemas:
+
+    TempleBookingCreate:
+      type: object
+      required: [resident_id, seva_type, booking_date, amount]
+      properties:
+        resident_id:  { type: string }
+        seva_type:    { type: string, enum: [monthly_pooja, abhishekam, archana, sandhana_kaapu] }
+        booking_date: { type: string, format: date, description: "Must be today or a future date" }
+        slot:         { type: string, maxLength: 20, nullable: true }
+        amount:       { type: string, description: "Decimal amount, must be > 0" }
+
+    TempleBookingOut:
+      allOf:
+        - $ref: "#/components/schemas/TempleBookingCreate"
+        - type: object
+          properties:
+            booking_id: { type: string }
+            status:     { type: string, enum: [confirmed, cancelled] }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+
+    TempleDonationCreate:
+      type: object
+      required: [amount]
+      description: "Either resident_id or donor_name must be provided."
+      properties:
+        resident_id:  { type: string, nullable: true }
+        donor_name:   { type: string, maxLength: 100, nullable: true }
+        purpose:      { type: string, enum: [general, annadanam, festival, renovation, other], nullable: true }
+        amount:       { type: string, description: "Decimal amount, must be > 0" }
+        payment_mode: { type: string, enum: [cash, upi, online_transfer, cheque], nullable: true }
+        receipt_no:   { type: string, maxLength: 50, nullable: true }
+        notes:        { type: string, nullable: true }
+
+    TempleDonationOut:
+      allOf:
+        - $ref: "#/components/schemas/TempleDonationCreate"
+        - type: object
+          properties:
+            donation_id: { type: string }
+            donated_at:  { type: string, format: date-time }
+            created_at:  { type: string, format: date-time }
+            updated_at:  { type: string, format: date-time }
+
+    TempleEventCreate:
+      type: object
+      required: [title, event_date]
+      properties:
+        title:              { type: string, maxLength: 200 }
+        description:        { type: string, nullable: true }
+        event_date:         { type: string, format: date-time }
+        venue:              { type: string, maxLength: 100, nullable: true }
+        volunteers_needed:  { type: integer, nullable: true }
+        status:             { type: string, enum: [upcoming, ongoing, completed, cancelled], default: upcoming }
+
+    TempleEventOut:
+      allOf:
+        - $ref: "#/components/schemas/TempleEventCreate"
+        - type: object
+          properties:
+            event_id:   { type: string }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+
+    TempleEventSignupCreate:
+      type: object
+      required: [resident_id, type]
+      properties:
+        resident_id: { type: string }
+        type:        { type: string, enum: [rsvp, volunteer] }
+
+    TempleEventSignupOut:
+      type: object
+      properties:
+        signup_id:    { type: string }
+        event_id:     { type: string }
+        resident_id:  { type: string }
+        type:         { type: string, enum: [rsvp, volunteer] }
+        signed_up_at: { type: string, format: date-time }
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail: { type: string }

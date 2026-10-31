@@ -1,0 +1,114 @@
+openapi: 3.0.3
+info:
+  title: Complaint History API - BE-10
+  description: |
+    API for retrieving a resident's past and current complaint history.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8000/api/v1
+tags:
+  - name: Complaints
+    description: Resident complaint operations
+paths:
+  /residents/{resident_id}/complaints:
+    get:
+      tags:
+        - Complaints
+      summary: Get resident complaint history
+      description: |
+        Returns the resident's complaint history, newest first. Ties on
+        `created_at` are broken by `complaint_id`, so ordering is stable across
+        pages. Resolved and closed complaints remain accessible.
+
+        By default the full history is returned in one array. Pass `page`
+        and/or `page_size` to page through a long history: the body is that
+        page's slice and the pagination metadata is returned in response
+        headers (`X-Total-Count`, `X-Page`, `X-Page-Size`, `X-Total-Pages`).
+        A resident with no complaints — or a page past the end — returns an
+        empty array with `X-Total-Count`/`X-Total-Pages` set accordingly, never
+        a 404.
+      parameters:
+        - name: resident_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: UUID of the resident
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+          description: 1-based page number. Omit for the full history.
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+          description: Items per page (1–100). Defaults to 20 when only `page` is given.
+      responses:
+        '200':
+          description: Complaint history (a page of it when paginated)
+          headers:
+            X-Total-Count:
+              description: Total complaints in this resident's history.
+              schema: { type: integer }
+            X-Page:
+              description: The page returned (paginated requests only).
+              schema: { type: integer }
+            X-Page-Size:
+              description: The page size applied (paginated requests only).
+              schema: { type: integer }
+            X-Total-Pages:
+              description: Total number of pages (paginated requests only).
+              schema: { type: integer }
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ComplaintOut'
+        '404':
+          description: Resident not found
+        '422':
+          description: Invalid page or page_size
+components:
+  schemas:
+    ComplaintOut:
+      type: object
+      required: [complaint_id, category, description, status, created_at, updated_at]
+      properties:
+        complaint_id:
+          type: string
+        category:
+          type: string
+        description:
+          type: string
+        location:
+          type: string
+          nullable: true
+        image_reference:
+          type: string
+          nullable: true
+        raised_by:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [submitted, assigned, in_progress, resolved, closed]
+        assigned_to:
+          type: string
+          nullable: true
+        assigned_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time

@@ -1,0 +1,1068 @@
+openapi: 3.1.0
+info:
+  title: Workforce Management API — BE-26
+  description: Workforce management for Jains Kences Retreat. Covers the house help directory and their
+    bookings, attendance and ratings, plus external service providers and the lifecycle of jobs raised
+    against them. Overlapping bookings are rejected, ratings are restricted to completed bookings, and
+    provider jobs follow a fixed state machine.
+  version: 1.0.0
+servers:
+- url: http://localhost:8000/api/v1
+  description: Local development server
+tags:
+- name: Workforce
+  description: House help directory, bookings, attendance and ratings; provider jobs
+paths:
+  /workforce/house-help:
+    post:
+      tags:
+      - Workforce
+      summary: Register a house help
+      operationId: create_house_help_api_v1_workforce_house_help_post
+      x-backlog-id: BE-26
+      x-user-story: As an admin, I want endpoints so that bookings, attendance, ratings and provider jobs
+        persist.
+      description: Adds a house help to the bookable directory.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HouseHelpCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HouseHelpOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - Workforce
+      summary: List house help
+      operationId: list_house_help_api_v1_workforce_house_help_get
+      x-backlog-id: BE-26
+      x-user-story: As an admin, I want endpoints so that bookings, attendance, ratings and provider jobs
+        persist.
+      description: Returns house help, optionally filtered by service type and/or active status.
+      parameters:
+      - name: service_type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: e.g. maid, cook, driver, gardener
+          title: Service Type
+        description: e.g. maid, cook, driver, gardener
+      - name: active_only
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: Only return active house help
+          default: false
+          title: Active Only
+        description: Only return active house help
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HouseHelpOut'
+                title: Response List House Help Api V1 Workforce House Help Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workforce/house-help/bookings:
+    post:
+      tags:
+      - Workforce
+      summary: Book house help
+      operationId: book_house_help_api_v1_workforce_house_help_bookings_post
+      x-backlog-id: BE-26
+      x-user-story: As an admin, I want endpoints so that bookings, attendance, ratings and provider jobs
+        persist.
+      description: Books a house help for a time slot. Rejects a slot that overlaps an existing non-cancelled
+        booking for the same house help on the same day.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HouseHelpBookingCreate'
+      responses:
+        '201':
+          description: Booking created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HouseHelpBookingOut'
+        '404':
+          description: House help or resident not found
+        '409':
+          description: Slot overlaps an existing booking for this house help
+        '422':
+          description: Validation error — end_time not after start_time
+    get:
+      tags:
+      - Workforce
+      summary: Booking history
+      operationId: list_bookings_api_v1_workforce_house_help_bookings_get
+      x-backlog-id: BE-26
+      x-user-story: As an admin, I want endpoints so that bookings, attendance, ratings and provider jobs
+        persist.
+      description: Returns bookings newest-first, optionally filtered by house help, resident and/or status.
+      parameters:
+      - name: house_help_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: House Help Id
+      - name: resident_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Resident Id
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: booked / completed / cancelled
+          title: Status
+        description: booked / completed / cancelled
+      - name: skip
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Skip
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 100
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HouseHelpBookingOut'
+                title: Response List Bookings Api V1 Workforce House Help Bookings Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workforce/house-help/bookings/{booking_id}/status:
+    put:
+      tags:
+      - Workforce
+      summary: Update a booking's status
+      operationId: update_booking_status_api_v1_workforce_house_help_bookings__booking_id__status_put
+      x-backlog-id: BE-26
+      x-user-story: As an admin, I want endpoints so that bookings, attendance, ratings and provider jobs
+        persist.
+      description: Transitions a booking to 'completed' or 'cancelled'. A resolved booking cannot be reopened.
+      parameters:
+      - name: booking_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Booking Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HouseHelpBookingStatusUpdate'
+      responses:
+        '200':
+          description: Booking status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HouseHelpBookingOut'
+        '400':
+          description: Transition not allowed from the booking's current status
+        '404':
+          description: Booking not found
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workforce/house-help/attendance:
+    post:
+      tags:
+      - Workforce
+      summary: Log house help attendance
+      operationId: mark_attendance_api_v1_workforce_house_help_attendance_post
+      x-backlog-id: BE-26
+      x-user-story: As an admin, I want endpoints so that bookings, attendance, ratings and provider jobs
+        persist.
+      description: Records a house help's attendance for a single day. Exactly one attendance record is
+        allowed per house help per date.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HouseHelpAttendanceCreate'
+      responses:
+        '201':
+          description: Attendance recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HouseHelpAttendanceOut'
+        '400':
+          description: booking_id does not belong to this house help
+        '404':
+          description: House help or booking not found
+        '409':
+          description: Attendance already recorded for this house help on this date
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - Workforce
+      summary: Attendance history
+      operationId: list_attendance_api_v1_workforce_house_help_attendance_get
+      x-backlog-id: BE-26
+      x-user-story: As an admin, I want endpoints so that bookings, attendance, ratings and provider jobs
+        persist.
+      description: Returns attendance records newest-first, optionally filtered by house help and/or date
+        range.
+      parameters:
+      - name: house_help_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: House Help Id
+      - name: date_from
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Date From
+      - name: date_to
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Date To
+      - name: skip
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Skip
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 100
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HouseHelpAttendanceOut'
+                title: Response List Attendance Api V1 Workforce House Help Attendance Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workforce/house-help/ratings:
+    post:
+      tags:
+      - Workforce
+      summary: Rate a completed booking
+      operationId: rate_booking_api_v1_workforce_house_help_ratings_post
+      x-backlog-id: BE-26
+      x-user-story: As an admin, I want endpoints so that bookings, attendance, ratings and provider jobs
+        persist.
+      description: Records a resident's rating of a house help booking. Only the resident who made the
+        booking may rate it, and only after the booking has been marked 'completed'. One rating per booking.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HouseHelpRatingCreate'
+        required: true
+      responses:
+        '201':
+          description: Rating recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HouseHelpRatingOut'
+        '400':
+          description: Booking is not completed, or resident_id does not match the booking
+        '404':
+          description: Booking not found
+        '409':
+          description: This booking has already been rated
+        '422':
+          description: Validation error — rating outside 1-5
+  /workforce/house-help/{house_help_id}/ratings:
+    get:
+      tags:
+      - Workforce
+      summary: A house help's ratings
+      operationId: list_ratings_api_v1_workforce_house_help__house_help_id__ratings_get
+      x-backlog-id: BE-26
+      x-user-story: As an admin, I want endpoints so that bookings, attendance, ratings and provider jobs
+        persist.
+      description: Returns all ratings recorded for a house help, newest first.
+      parameters:
+      - name: house_help_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: House Help Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HouseHelpRatingOut'
+                title: Response List Ratings Api V1 Workforce House Help  House Help Id  Ratings Get
+        '404':
+          description: House help not found
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workforce/providers:
+    post:
+      tags:
+      - Workforce
+      summary: Register a provider
+      operationId: create_provider_api_v1_workforce_providers_post
+      x-backlog-id: BE-26
+      x-user-story: As an admin, I want endpoints so that bookings, attendance, ratings and provider jobs
+        persist.
+      description: Adds an external service provider (contractor) to the directory.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - Workforce
+      summary: List providers
+      operationId: list_providers_api_v1_workforce_providers_get
+      x-backlog-id: BE-26
+      x-user-story: As an admin, I want endpoints so that bookings, attendance, ratings and provider jobs
+        persist.
+      description: Returns providers, optionally filtered by service type.
+      parameters:
+      - name: service_type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: e.g. AC Repair, Pest Control
+          title: Service Type
+        description: e.g. AC Repair, Pest Control
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProviderOut'
+                title: Response List Providers Api V1 Workforce Providers Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workforce/provider-jobs:
+    post:
+      tags:
+      - Workforce
+      summary: Request a provider job
+      operationId: create_job_api_v1_workforce_provider_jobs_post
+      x-backlog-id: BE-26
+      x-user-story: As an admin, I want endpoints so that bookings, attendance, ratings and provider jobs
+        persist.
+      description: Raises a new job against a provider, created in the 'requested' state.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderJobCreate'
+      responses:
+        '201':
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderJobOut'
+        '404':
+          description: Provider not found
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - Workforce
+      summary: Provider job history
+      operationId: list_jobs_api_v1_workforce_provider_jobs_get
+      x-backlog-id: BE-26
+      x-user-story: As an admin, I want endpoints so that bookings, attendance, ratings and provider jobs
+        persist.
+      description: Returns provider jobs newest-first, optionally filtered by provider and/or status.
+      parameters:
+      - name: provider_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Provider Id
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: requested / assigned / in_progress / completed / cancelled
+          title: Status
+        description: requested / assigned / in_progress / completed / cancelled
+      - name: skip
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Skip
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 100
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProviderJobOut'
+                title: Response List Jobs Api V1 Workforce Provider Jobs Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /workforce/provider-jobs/{job_id}/status:
+    put:
+      tags:
+      - Workforce
+      summary: Transition a provider job's status
+      operationId: update_job_status_api_v1_workforce_provider_jobs__job_id__status_put
+      x-backlog-id: BE-26
+      x-user-story: As an admin, I want endpoints so that bookings, attendance, ratings and provider jobs
+        persist.
+      description: Advances a job through `requested -> assigned -> in_progress -> completed`. Cancellation
+        is allowed from any non-terminal state. `completed_at` is stamped when the job reaches 'completed'.
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Job Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderJobStatusUpdate'
+      responses:
+        '200':
+          description: Job status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderJobOut'
+        '400':
+          description: Transition not allowed from the job's current status
+        '404':
+          description: Job not found
+        '422':
+          description: Validation error — status not one of the allowed values
+components:
+  schemas:
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    HouseHelpAttendanceCreate:
+      properties:
+        house_help_id:
+          type: string
+          title: House Help Id
+        attendance_date:
+          type: string
+          format: date
+          title: Attendance Date
+        status:
+          type: string
+          enum:
+          - present
+          - absent
+          title: Status
+        booking_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Booking Id
+        notes:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Notes
+      type: object
+      required:
+      - house_help_id
+      - attendance_date
+      - status
+      title: HouseHelpAttendanceCreate
+    HouseHelpAttendanceOut:
+      properties:
+        attendance_id:
+          type: string
+          title: Attendance Id
+        house_help_id:
+          type: string
+          title: House Help Id
+        booking_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Booking Id
+        attendance_date:
+          type: string
+          format: date
+          title: Attendance Date
+        status:
+          type: string
+          enum:
+          - present
+          - absent
+          title: Status
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+        marked_at:
+          type: string
+          format: date-time
+          title: Marked At
+      type: object
+      required:
+      - attendance_id
+      - house_help_id
+      - attendance_date
+      - status
+      - marked_at
+      title: HouseHelpAttendanceOut
+    HouseHelpBookingCreate:
+      properties:
+        house_help_id:
+          type: string
+          title: House Help Id
+        resident_id:
+          type: string
+          title: Resident Id
+        booking_date:
+          type: string
+          format: date
+          title: Booking Date
+        start_time:
+          type: string
+          format: time
+          title: Start Time
+        end_time:
+          type: string
+          format: time
+          title: End Time
+        notes:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Notes
+      type: object
+      required:
+      - house_help_id
+      - resident_id
+      - booking_date
+      - start_time
+      - end_time
+      title: HouseHelpBookingCreate
+    HouseHelpBookingOut:
+      properties:
+        booking_id:
+          type: string
+          title: Booking Id
+        house_help_id:
+          type: string
+          title: House Help Id
+        resident_id:
+          type: string
+          title: Resident Id
+        booking_date:
+          type: string
+          format: date
+          title: Booking Date
+        start_time:
+          type: string
+          format: time
+          title: Start Time
+        end_time:
+          type: string
+          format: time
+          title: End Time
+        status:
+          type: string
+          enum:
+          - booked
+          - completed
+          - cancelled
+          title: Status
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+      type: object
+      required:
+      - booking_id
+      - house_help_id
+      - resident_id
+      - booking_date
+      - start_time
+      - end_time
+      - status
+      - created_at
+      - updated_at
+      title: HouseHelpBookingOut
+    HouseHelpBookingStatusUpdate:
+      properties:
+        status:
+          type: string
+          enum:
+          - booked
+          - completed
+          - cancelled
+          title: Status
+      type: object
+      required:
+      - status
+      title: HouseHelpBookingStatusUpdate
+    HouseHelpCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+        service_type:
+          type: string
+          maxLength: 50
+          minLength: 1
+          title: Service Type
+          description: e.g. maid, cook, driver, gardener
+        phone:
+          anyOf:
+          - type: string
+            maxLength: 15
+          - type: 'null'
+          title: Phone
+      type: object
+      required:
+      - name
+      - service_type
+      title: HouseHelpCreate
+    HouseHelpOut:
+      properties:
+        house_help_id:
+          type: string
+          title: House Help Id
+        name:
+          type: string
+          title: Name
+        service_type:
+          type: string
+          title: Service Type
+        phone:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Phone
+        is_active:
+          type: string
+          title: Is Active
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - house_help_id
+      - name
+      - service_type
+      - is_active
+      - created_at
+      title: HouseHelpOut
+    HouseHelpRatingCreate:
+      properties:
+        booking_id:
+          type: string
+          title: Booking Id
+          description: Must reference a completed booking
+        resident_id:
+          type: string
+          title: Resident Id
+        rating:
+          type: integer
+          maximum: 5.0
+          minimum: 1.0
+          title: Rating
+        comment:
+          anyOf:
+          - type: string
+            maxLength: 1000
+          - type: 'null'
+          title: Comment
+      type: object
+      required:
+      - booking_id
+      - resident_id
+      - rating
+      title: HouseHelpRatingCreate
+    HouseHelpRatingOut:
+      properties:
+        rating_id:
+          type: string
+          title: Rating Id
+        house_help_id:
+          type: string
+          title: House Help Id
+        booking_id:
+          type: string
+          title: Booking Id
+        resident_id:
+          type: string
+          title: Resident Id
+        rating:
+          type: integer
+          title: Rating
+        comment:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Comment
+        rated_at:
+          type: string
+          format: date-time
+          title: Rated At
+      type: object
+      required:
+      - rating_id
+      - house_help_id
+      - booking_id
+      - resident_id
+      - rating
+      - rated_at
+      title: HouseHelpRatingOut
+    ProviderCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+        service_type:
+          type: string
+          maxLength: 50
+          minLength: 1
+          title: Service Type
+          description: e.g. AC Repair, Pest Control
+        phone:
+          anyOf:
+          - type: string
+            maxLength: 15
+          - type: 'null'
+          title: Phone
+      type: object
+      required:
+      - name
+      - service_type
+      title: ProviderCreate
+    ProviderJobCreate:
+      properties:
+        provider_id:
+          type: string
+          title: Provider Id
+        title:
+          type: string
+          maxLength: 150
+          minLength: 1
+          title: Title
+        description:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Description
+        requested_by:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Requested By
+          description: resident_id of the requester, if any
+      type: object
+      required:
+      - provider_id
+      - title
+      title: ProviderJobCreate
+    ProviderJobOut:
+      properties:
+        job_id:
+          type: string
+          title: Job Id
+        provider_id:
+          type: string
+          title: Provider Id
+        title:
+          type: string
+          title: Title
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        status:
+          type: string
+          enum:
+          - requested
+          - assigned
+          - in_progress
+          - completed
+          - cancelled
+          title: Status
+        requested_by:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Requested By
+        requested_at:
+          type: string
+          format: date-time
+          title: Requested At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+        completed_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Completed At
+      type: object
+      required:
+      - job_id
+      - provider_id
+      - title
+      - status
+      - requested_at
+      - updated_at
+      title: ProviderJobOut
+    ProviderJobStatusUpdate:
+      properties:
+        status:
+          type: string
+          enum:
+          - requested
+          - assigned
+          - in_progress
+          - completed
+          - cancelled
+          title: Status
+      type: object
+      required:
+      - status
+      title: ProviderJobStatusUpdate
+    ProviderOut:
+      properties:
+        provider_id:
+          type: string
+          title: Provider Id
+        name:
+          type: string
+          title: Name
+        service_type:
+          type: string
+          title: Service Type
+        phone:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Phone
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - provider_id
+      - name
+      - service_type
+      - created_at
+      title: ProviderOut
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

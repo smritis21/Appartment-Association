@@ -1,0 +1,142 @@
+openapi: 3.0.3
+info:
+  title: Complaint Assignment API — BE-06
+  description: >
+    Complaint Assignment API for Jains Kences Retreat Apartment Association
+    Management System. Lets the Association President allocate a complaint
+    to a staff member.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Complaints
+    description: Assign complaints to staff members
+
+paths:
+
+  /complaints/{complaint_id}/assign:
+    put:
+      tags: [Complaints]
+      summary: Assign or reassign a complaint to a staff member
+      description: >
+        Sets the assigned staff member and an assignment timestamp on the
+        complaint. If the complaint is still `submitted`, its status moves
+        forward to `assigned`; complaints already `in_progress`, `resolved`,
+        or `closed` keep their current status when reassigned.
+
+
+        The same endpoint reassigns: calling it again on an already-assigned
+        complaint moves it to the new staff member. Every assignment and
+        reassignment is written to the immutable audit log (BE-39) in the same
+        transaction — a reassignment records the staff member the complaint was
+        taken from. Pass `assigned_by` to record who made the change.
+
+
+        The staff member must exist and be active. Both the complaint and the
+        staff member must already exist.
+      parameters:
+        - name: complaint_id
+          in: path
+          required: true
+          schema: { type: string }
+          description: UUID of the complaint to assign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ComplaintAssign" }
+            example:
+              staff_id: "2931dc45-b1f5-4760-888e-8e666cba751e"
+              assigned_by: "president-007"
+      responses:
+        "200":
+          description: Complaint assigned successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ComplaintOut" }
+              example:
+                complaint_id: "0ae70f01-9420-4e3f-97a1-bac93f9c6a41"
+                category: "plumbing"
+                description: "Leaking pipe"
+                location: "A-101"
+                raised_by: "res-1"
+                status: "assigned"
+                assigned_to: "2931dc45-b1f5-4760-888e-8e666cba751e"
+                assigned_at: "2026-08-01T09:15:31.932721"
+                assigned_staff:
+                  staff_id: "2931dc45-b1f5-4760-888e-8e666cba751e"
+                  name: "Test Staff"
+                  role: "maintenance"
+                  phone: "9990001111"
+                created_at: "2026-08-01T09:15:20"
+                updated_at: "2026-08-01T09:15:31"
+        "400":
+          description: The staff member exists but is inactive and cannot take new work
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "Staff member 'Retired Ravi' (2931dc45-...) is inactive and cannot be assigned complaints."
+        "404":
+          description: Complaint or staff member not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              examples:
+                complaint_not_found:
+                  summary: Complaint does not exist
+                  value: { detail: "Complaint 'nope' not found." }
+                staff_not_found:
+                  summary: Staff member does not exist
+                  value: { detail: "Staff member 'nope' not found." }
+        "422":
+          description: Validation error — staff_id missing or malformed request body
+
+components:
+  schemas:
+
+    StaffOut:
+      type: object
+      properties:
+        staff_id: { type: string }
+        name:     { type: string }
+        role:     { type: string, description: "e.g. maintenance, electrician, plumber, security" }
+        phone:    { type: string, nullable: true }
+
+    ComplaintAssign:
+      type: object
+      required: [staff_id]
+      properties:
+        staff_id:
+          type: string
+          description: UUID of the staff member to assign this complaint to
+        assigned_by:
+          type: string
+          maxLength: 100
+          nullable: true
+          description: ID of the user making the assignment, recorded in the audit log.
+
+    ComplaintOut:
+      type: object
+      properties:
+        complaint_id:   { type: string }
+        category:       { type: string }
+        description:    { type: string }
+        location:       { type: string, nullable: true }
+        raised_by:      { type: string, nullable: true }
+        status:
+          type: string
+          enum: [submitted, assigned, in_progress, resolved, closed]
+        assigned_to:    { type: string, nullable: true }
+        assigned_at:    { type: string, format: date-time, nullable: true }
+        assigned_staff: { $ref: "#/components/schemas/StaffOut" }
+        created_at:     { type: string, format: date-time }
+        updated_at:     { type: string, format: date-time }
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail: { type: string }

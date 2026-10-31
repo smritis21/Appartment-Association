@@ -1,0 +1,158 @@
+openapi: 3.0.3
+info:
+  title: Audit Log API — BE-39
+  description: >
+    Audit Log API for the Jains Kences Retreat Apartment Association
+    Management System. Returns a filterable, paginated, append-only log of
+    key actions taken across the system.
+
+    Access control: no real authentication exists in this backend yet
+    (BE-21 will add it). Until then, `GET /audit` is gated by an interim
+    `X-User-Role: admin` header check — see the `AdminRole` security scheme
+    below. This is a deliberate stand-in, not the final access-control
+    mechanism.
+
+    Writes: there is no `POST /audit`. Entries are written only by trusted
+    server-side calls from other modules (currently: BE-33 seva booking and
+    donation creation, BE-33 event signup, and BE-34 activity signup) at the
+    moment the action they describe is committed, so an entry can never
+    exist without the action it records actually having happened.
+
+    Immutability: `audit_logs` rows are never updated or deleted — no such
+    operation is exposed anywhere in this API.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Audit
+    description: Filterable, admin-only log of key actions across the system
+
+paths:
+
+  /audit:
+    get:
+      tags: [Audit]
+      summary: List audit log entries
+      description: >
+        Returns audit entries newest-first, paginated. All filters are
+        optional and combinable.
+      security:
+        - AdminRole: []
+      parameters:
+        - name: module
+          in: query
+          required: false
+          schema: { type: string }
+          description: "Filter by module, e.g. 'temple' or 'community'"
+        - name: action
+          in: query
+          required: false
+          schema: { type: string }
+          description: "Filter by action, e.g. 'seva_booking_created'"
+        - name: actor_id
+          in: query
+          required: false
+          schema: { type: string }
+          description: Filter by who performed the action
+        - name: target_id
+          in: query
+          required: false
+          schema: { type: string }
+          description: Filter by the entity acted on
+        - name: date_from
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+          description: Only entries at/after this timestamp
+        - name: date_to
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+          description: Only entries at/before this timestamp
+        - name: page
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: page_size
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: Audit log returned successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuditLogListResponse" }
+              example:
+                total: 2
+                page: 1
+                page_size: 20
+                pages: 1
+                items:
+                  - log_id: "3d7a1f22-9c40-4b8e-b0a6-1e2f4c5d6a7b"
+                    actor_id: "8f1c2b91-0a63-4c4e-9a2f-5c1b7e0d3a11"
+                    actor_role: "resident"
+                    module: "temple"
+                    action: "seva_booking_created"
+                    target_type: "temple_booking"
+                    target_id: "9c1a2b3c-4d5e-6f70-8192-a3b4c5d6e7f8"
+                    description: "Booked archana on 2026-09-01."
+                    timestamp: "2026-08-05T10:26:41.512380"
+        "403":
+          description: Missing or non-admin X-User-Role header
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "This endpoint is admin-only. Pass 'X-User-Role: admin'."
+        "422":
+          description: date_from is later than date_to
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "date_from must not be later than date_to."
+
+components:
+  securitySchemes:
+    AdminRole:
+      type: apiKey
+      in: header
+      name: X-User-Role
+      description: >
+        Interim admin gate (BE-39) — only the literal value "admin" is
+        accepted. Stand-in until BE-21 ships real JWT-based auth and roles.
+
+  schemas:
+
+    AuditLogOut:
+      type: object
+      properties:
+        log_id:      { type: string }
+        actor_id:    { type: string, nullable: true }
+        actor_role:  { type: string, nullable: true }
+        module:      { type: string }
+        action:      { type: string }
+        target_type: { type: string, nullable: true }
+        target_id:   { type: string, nullable: true }
+        description: { type: string, nullable: true }
+        timestamp:   { type: string, format: date-time }
+
+    AuditLogListResponse:
+      type: object
+      properties:
+        total:     { type: integer, minimum: 0 }
+        page:      { type: integer, minimum: 1 }
+        page_size: { type: integer, minimum: 1 }
+        pages:     { type: integer, minimum: 0 }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AuditLogOut" }
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail: { type: string }

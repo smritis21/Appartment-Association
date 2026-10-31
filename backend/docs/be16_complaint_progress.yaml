@@ -1,0 +1,186 @@
+openapi: 3.0.3
+info:
+  title: Complaint Progress Update API — BE-16
+  description: >
+    Complaint Progress Update API for Jains Kences Retreat Apartment
+    Association Management System. Lets a maintenance staff member move a
+    complaint through its workflow, recording an audit-trail entry (status,
+    employee, timestamp, optional notes) for every change.
+
+    Status flow: submitted -> assigned -> in_progress -> resolved -> closed,
+    with "resolved" able to reopen back to "in_progress". "closed" is
+    terminal. Any transition not in this flow is rejected with 400.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Complaints
+    description: Update complaint status with an audit trail
+
+paths:
+
+  /complaints/{complaint_id}/progress:
+    put:
+      tags: [Complaints]
+      summary: Update complaint progress
+      description: >
+        Moves a complaint to a new status and appends an audit-trail entry
+        recording the employee who made the change and when — every accepted
+        update is written to the trail, and a rejected one writes nothing. Only
+        forward workflow transitions (and reopening a resolved complaint) are
+        allowed. The employee must exist and be active: an inactive staff
+        account is not authorised to record progress and is rejected with 403.
+        Both the complaint and the employee must already exist.
+      parameters:
+        - name: complaint_id
+          in: path
+          required: true
+          schema: { type: string }
+          description: UUID of the complaint being updated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ComplaintProgressUpdate" }
+            example:
+              status: "in_progress"
+              employee_id: "c9b9ec6e-817d-43d3-ab3a-c46a65377079"
+              notes: "Investigating the fuse"
+      responses:
+        "200":
+          description: Progress recorded successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ComplaintOut" }
+              example:
+                complaint_id: "b67e98fa-9328-4331-ab9e-2ad89af59839"
+                category: "electrical"
+                description: "Fuse tripping repeatedly"
+                location: "B-204"
+                raised_by: "res-2"
+                status: "in_progress"
+                assigned_to: null
+                assigned_at: null
+                assigned_staff: null
+                progress_logs:
+                  - log_id: "5014ce33-d3b0-4007-aef5-ce86eb9eac0a"
+                    complaint_id: "b67e98fa-9328-4331-ab9e-2ad89af59839"
+                    employee_id: "c9b9ec6e-817d-43d3-ab3a-c46a65377079"
+                    employee:
+                      staff_id: "c9b9ec6e-817d-43d3-ab3a-c46a65377079"
+                      name: "Progress Tester"
+                      role: "maintenance"
+                      phone: "9990002222"
+                    status: "in_progress"
+                    notes: "Investigating the fuse"
+                    updated_at: "2026-08-01T09:33:13"
+                created_at: "2026-08-01T09:33:03"
+                updated_at: "2026-08-01T09:33:13"
+        "400":
+          description: >
+            Invalid status transition. The state machine is
+            submitted -> assigned -> in_progress -> resolved -> closed, with
+            resolved able to reopen to in_progress. closed is terminal and
+            cannot be reopened. The message names the valid next states.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              examples:
+                illegal_transition:
+                  summary: Not a reachable next state
+                  value:
+                    detail: "Cannot transition complaint from 'resolved' to 'assigned': the only valid next states from 'resolved' are: closed, in_progress."
+                closed_is_terminal:
+                  summary: Reopening a closed complaint
+                  value:
+                    detail: "Cannot transition complaint from 'closed' to 'in_progress': 'closed' is a terminal state and cannot be reopened. File a new complaint instead."
+        "403":
+          description: The employee is inactive and not authorised to record progress
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "Staff member 'Retired Ravi' (2931dc45-...) is inactive and is not authorised to record progress updates."
+        "404":
+          description: Complaint or employee not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              examples:
+                complaint_not_found:
+                  summary: Complaint does not exist
+                  value: { detail: "Complaint 'nope' not found." }
+                employee_not_found:
+                  summary: Employee does not exist
+                  value: { detail: "Staff member 'nope' not found." }
+        "422":
+          description: Validation error — missing/invalid status or employee_id
+
+components:
+  schemas:
+
+    StaffOut:
+      type: object
+      properties:
+        staff_id: { type: string }
+        name:     { type: string }
+        role:     { type: string, description: "e.g. maintenance, electrician, plumber, security" }
+        phone:    { type: string, nullable: true }
+
+    ComplaintProgressUpdate:
+      type: object
+      required: [status, employee_id]
+      properties:
+        status:
+          type: string
+          enum: [submitted, assigned, in_progress, resolved, closed]
+          description: New status to move the complaint to
+        employee_id:
+          type: string
+          description: UUID of the staff member recording this update
+        notes:
+          type: string
+          maxLength: 500
+          nullable: true
+          description: Optional note about the work done
+
+    ComplaintProgressLogOut:
+      type: object
+      properties:
+        log_id:       { type: string }
+        complaint_id: { type: string }
+        employee_id:  { type: string }
+        employee:     { $ref: "#/components/schemas/StaffOut" }
+        status:
+          type: string
+          enum: [submitted, assigned, in_progress, resolved, closed]
+        notes:        { type: string, nullable: true }
+        updated_at:   { type: string, format: date-time }
+
+    ComplaintOut:
+      type: object
+      properties:
+        complaint_id:   { type: string }
+        category:       { type: string }
+        description:    { type: string }
+        location:       { type: string, nullable: true }
+        raised_by:      { type: string, nullable: true }
+        status:
+          type: string
+          enum: [submitted, assigned, in_progress, resolved, closed]
+        assigned_to:    { type: string, nullable: true }
+        assigned_at:    { type: string, format: date-time, nullable: true }
+        assigned_staff: { $ref: "#/components/schemas/StaffOut" }
+        progress_logs:
+          type: array
+          items: { $ref: "#/components/schemas/ComplaintProgressLogOut" }
+        created_at:     { type: string, format: date-time }
+        updated_at:     { type: string, format: date-time }
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail: { type: string }

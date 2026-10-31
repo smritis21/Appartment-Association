@@ -1,0 +1,67 @@
+openapi: 3.0.3
+info:
+  title: Announcements Retrieval API
+  description: Endpoint to fetch current and past notices with pagination.
+  version: 1.0.0
+
+paths:
+  /api/v1/announcements/:
+    get:
+      summary: Retrieve announcements
+      description: Returns published announcements with metadata. Supports pagination and current/historical filter.
+      tags:
+        - Announcements
+      parameters:
+        - name: skip
+          in: query
+          description: Number of records to skip for pagination.
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: limit
+          in: query
+          description: Maximum number of records to return.
+          required: false
+          schema:
+            type: integer
+            default: 100
+        - name: filter_type
+          in: query
+          description: Filter announcements by 'all', 'current', or 'historical'.
+          required: false
+          schema:
+            type: string
+            enum: [all, current, historical]
+            default: all
+      responses:
+        '200':
+          description: A list of announcements
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AnnouncementResponse'
+
+components:
+  schemas:
+    AnnouncementResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        body:
+          type: string
+        author:
+          type: string
+        visibility:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time

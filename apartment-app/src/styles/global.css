@@ -1,0 +1,110 @@
+@import './variables.css';
+@import './animations.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Warm, layered "estate" backdrop instead of a flat fill */
+  background-color: var(--color-bg);
+  background-image:
+    radial-gradient(circle at 0% 0%, rgba(47, 82, 51, 0.05), transparent 42%),
+    radial-gradient(circle at 100% 0%, rgba(168, 130, 60, 0.06), transparent 40%);
+  background-attachment: fixed;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-divider);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink-faint);
+  background-clip: padding-box;
+}
+
+/* Consistent, on-brand focus ring for keyboard users */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::selection {
+  background: rgba(47, 82, 51, 0.18);
+}
+
+/* Suppress duplicate browser-native password reveal & clear adornments */
+input::-ms-reveal,
+input::-ms-clear,
+input::-webkit-contacts-auto-fill-button,
+input::-webkit-credentials-auto-fill-button {
+  display: none !important;
+}
+
+/*
+ * Print rules (Bug 17).
+ *
+ * DashboardLayout.jsx always wraps every routed page (including receipts and
+ * invoices) in <Navbar/> and <Sidebar/>, and each page's PageHeader renders
+ * navigation-only action buttons (Back, Print, ...). None of that belongs on
+ * a printed receipt/invoice, so it is opted out via `.no-print`.
+ *
+ * `.app-main-content` is the padded content wrapper inside <main> in
+ * DashboardLayout.jsx - zeroing its margin/padding lets the printable
+ * content (e.g. ReceiptPage's own Paper) use the full page instead of being
+ * boxed into the app's on-screen content column.
+ */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  main,
+  .app-main-content {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+  }
+}
+

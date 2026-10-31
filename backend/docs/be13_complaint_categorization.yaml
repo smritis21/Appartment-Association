@@ -1,0 +1,133 @@
+openapi: 3.0.3
+info:
+  title: Complaint Categorization API - BE-13
+  description: |
+    API documentation for resident complaint categorization rules during submission.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8000/api/v1
+tags:
+  - name: Complaints
+    description: Resident complaint operations
+paths:
+  /complaints/categories:
+    get:
+      tags:
+        - Complaints
+      summary: List complaint categories
+      description: |
+        Returns the canonical list of complaint categories a resident may
+        submit. This is the single source of truth submission is validated
+        against — clients should read it here rather than hard-coding the
+        values, so a category added server-side is picked up automatically and
+        stays in lockstep with what submission accepts.
+      responses:
+        '200':
+          description: Category list returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryListOut'
+  /complaints:
+    post:
+      tags:
+        - Complaints
+      summary: Submit a complaint with categorization
+      description: |
+        Submits a complaint where the category is validated against the
+        canonical category list (see GET /complaints/categories). Each complaint
+        stores exactly one category. An unknown, wrongly-cased, or empty category
+        is rejected with 400 and a message listing the allowed values; a valid
+        category with surrounding whitespace is trimmed and accepted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ComplaintCreate'
+      responses:
+        '201':
+          description: Complaint submitted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplaintOut'
+        '400':
+          description: Invalid category or payload
+        '422':
+          description: Validation Error
+components:
+  schemas:
+    ComplaintCategory:
+      type: string
+      enum:
+        - Plumbing
+        - Electrical
+        - Security
+        - Water Supply
+        - Lift Maintenance
+    CategoryListOut:
+      type: object
+      required: [categories, count]
+      description: The canonical complaint category list.
+      properties:
+        categories:
+          type: array
+          items:
+            type: string
+          description: Allowed complaint categories, in display order.
+        count:
+          type: integer
+          minimum: 0
+          description: Number of categories.
+    ComplaintCreate:
+      type: object
+      additionalProperties: false
+      required: [category, description, location]
+      properties:
+        category:
+          $ref: '#/components/schemas/ComplaintCategory'
+        description:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        location:
+          type: string
+          minLength: 1
+          maxLength: 100
+        image_reference:
+          type: string
+          maxLength: 500
+          nullable: true
+        raised_by:
+          type: string
+          maxLength: 100
+          nullable: true
+    ComplaintOut:
+      type: object
+      required: [complaint_id, category, description, status, created_at, updated_at]
+      properties:
+        complaint_id:
+          type: string
+        category:
+          type: string
+        description:
+          type: string
+        location:
+          type: string
+          nullable: true
+        image_reference:
+          type: string
+          nullable: true
+        raised_by:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [submitted, assigned, in_progress, resolved, closed]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time

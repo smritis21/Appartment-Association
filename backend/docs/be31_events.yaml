@@ -1,0 +1,280 @@
+openapi: 3.0.3
+info:
+  title: Community Hub Events API — BE-31
+  description: >
+    Community Hub Events API for the Jains Kences Retreat Apartment Association
+    Management System. Creates and lists community events (functions, socials,
+    drives) and records a resident's RSVP or volunteer registration for one.
+
+    Capacity: an event's `capacity` caps the number of RSVP (attendee) seats;
+    `capacity: null` means unlimited. Volunteers help run the event and are
+    never blocked by a full RSVP list. A resident may RSVP once and volunteer
+    once for the same event, but not duplicate either.
+
+    Registration is open while the event is `upcoming` or `ongoing`, and closed
+    once it is `completed` or `cancelled`.
+
+    Gallery: `gallery` is a list of image references — each must be an http(s)
+    URL or a root-relative path (starting with '/'), up to 10 entries. Bad or
+    blank references are rejected with 422.
+
+    Errors: 404 unknown event or resident, 409 duplicate registration, 400
+    event closed or RSVP at capacity, 422 invalid input.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Events
+    description: Create/list community events and record RSVP/volunteer registrations
+
+paths:
+
+  /events:
+    post:
+      tags: [Events]
+      summary: Create a community event
+      description: >
+        Creates a community event. `capacity` caps RSVP seats (null means
+        unlimited); `gallery` accepts image references (http(s) URL or
+        root-relative path), validated on the way in.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EventCreate" }
+            examples:
+              event:
+                summary: Diwali get-together
+                value:
+                  title: "Diwali Get-Together"
+                  description: "Community celebration with dinner"
+                  event_date: "2026-11-08T18:30:00"
+                  venue: "Community Hall"
+                  capacity: 100
+                  gallery:
+                    - "https://cdn.example.com/events/diwali-2025.jpg"
+                    - "/uploads/events/diwali-poster.png"
+      responses:
+        "201":
+          description: Event created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EventOut" }
+        "422":
+          description: Validation error — bad gallery reference or field
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+    get:
+      tags: [Events]
+      summary: List community events
+      description: >
+        Returns events soonest-first, each with derived rsvp_count,
+        volunteer_count and spots_remaining. Filter by status or a date window.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [upcoming, ongoing, completed, cancelled] }
+        - name: date_from
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+          description: Only events on/after this time
+        - name: date_to
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+          description: Only events on/before this time
+      responses:
+        "200":
+          description: List of events
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/EventOut" }
+        "422":
+          description: Invalid status filter value
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+  /events/{event_id}:
+    get:
+      tags: [Events]
+      summary: Get a community event
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The event, including derived rsvp_count/volunteer_count/spots_remaining
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EventOut" }
+        "404":
+          description: Event not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "Event 'nope' not found."
+
+  /events/{event_id}/register:
+    post:
+      tags: [Events]
+      summary: Register (RSVP or volunteer) for an event
+      description: >
+        Records a resident's RSVP or volunteer registration. RSVPs are rejected
+        once the event is at capacity; volunteers are never capacity-blocked.
+        Rejected if the event is completed/cancelled or the resident has already
+        registered with the same type.
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EventRegistrationCreate" }
+            examples:
+              rsvp:
+                summary: RSVP as an attendee
+                value:
+                  resident_id: "8f1c2b91-0a63-4c4e-9a2f-5c1b7e0d3a11"
+                  type: "rsvp"
+              volunteer:
+                summary: Sign up to volunteer
+                value:
+                  resident_id: "8f1c2b91-0a63-4c4e-9a2f-5c1b7e0d3a11"
+                  type: "volunteer"
+      responses:
+        "201":
+          description: Registration recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EventRegistrationOut" }
+        "400":
+          description: Event closed, or RSVP rejected because at capacity
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              examples:
+                closed:
+                  summary: Event completed/cancelled
+                  value:
+                    detail: "Event '3d7a1f22' is completed and no longer accepting registrations."
+                at_capacity:
+                  summary: RSVP capacity reached
+                  value:
+                    detail: "Event '3d7a1f22' is at capacity (100)."
+        "404":
+          description: Event or resident not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "409":
+          description: Resident already registered with this type
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "Resident '8f1c2b91-0a63-4c4e-9a2f-5c1b7e0d3a11' has already registered as 'rsvp' for this event."
+        "422":
+          description: Validation error — resident_id/type missing or invalid
+
+  /events/{event_id}/registrations:
+    get:
+      tags: [Events]
+      summary: List registrations for an event
+      description: Returns RSVPs and volunteers for an event. Filter by type.
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: type
+          in: query
+          required: false
+          schema: { type: string, enum: [rsvp, volunteer] }
+      responses:
+        "200":
+          description: List of registrations
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/EventRegistrationOut" }
+        "404":
+          description: Event not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+components:
+  schemas:
+
+    EventCreate:
+      type: object
+      required: [title, event_date]
+      properties:
+        title:       { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, nullable: true }
+        event_date:  { type: string, format: date-time }
+        venue:       { type: string, maxLength: 100, nullable: true }
+        capacity:    { type: integer, minimum: 1, nullable: true, description: "RSVP seats; null means unlimited" }
+        gallery:
+          type: array
+          maxItems: 10
+          items: { type: string, description: "http(s) URL or root-relative path" }
+        created_by:  { type: string, maxLength: 100, nullable: true }
+        status:      { type: string, enum: [upcoming, ongoing, completed, cancelled], default: upcoming }
+
+    EventOut:
+      type: object
+      properties:
+        event_id:        { type: string }
+        title:           { type: string }
+        description:     { type: string, nullable: true }
+        event_date:      { type: string, format: date-time }
+        venue:           { type: string, nullable: true }
+        capacity:        { type: integer, nullable: true, description: "null means unlimited RSVPs" }
+        gallery:
+          type: array
+          items: { type: string }
+        created_by:      { type: string, nullable: true }
+        status:          { type: string, enum: [upcoming, ongoing, completed, cancelled] }
+        rsvp_count:      { type: integer, description: "Number of residents who have RSVP'd" }
+        volunteer_count: { type: integer, description: "Number of residents volunteering" }
+        spots_remaining: { type: integer, nullable: true, description: "capacity - rsvp_count; null when capacity is unlimited" }
+        created_at:      { type: string, format: date-time }
+        updated_at:      { type: string, format: date-time }
+
+    EventRegistrationCreate:
+      type: object
+      required: [resident_id, type]
+      properties:
+        resident_id: { type: string }
+        type:        { type: string, enum: [rsvp, volunteer] }
+
+    EventRegistrationOut:
+      type: object
+      properties:
+        registration_id: { type: string }
+        event_id:        { type: string }
+        resident_id:     { type: string }
+        type:            { type: string, enum: [rsvp, volunteer] }
+        registered_at:   { type: string, format: date-time }
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail: { type: string }

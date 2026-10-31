@@ -1,0 +1,211 @@
+openapi: 3.0.3
+info:
+  title: Community Corners API — BE-34
+  description: >
+    Community Corners API for the Jains Kences Retreat Apartment Association
+    Management System. Lists activities offered under each "corner" (kids,
+    senior, recreational, social) and records a resident's signup/registration
+    for one.
+
+    Signup rules: an activity only accepts signups while it is `upcoming` and
+    its `activity_date` (if set) has not yet passed. If `capacity` is set,
+    signups are rejected once it is reached; `capacity: null` means
+    unlimited. A resident may sign up for a given activity only once.
+
+    Errors: 404 unknown activity or resident, 409 duplicate signup, 400
+    activity closed/already occurred/at capacity, 422 invalid input.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Community
+    description: List community corner activities and record resident signups
+
+paths:
+
+  /community/activities:
+    get:
+      tags: [Community]
+      summary: List community corner activities
+      description: >
+        Returns activities across all corners, soonest-first. Filter by
+        corner, status or a date window.
+      parameters:
+        - name: corner
+          in: query
+          required: false
+          schema: { type: string, enum: [kids, senior, recreational, social] }
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [upcoming, completed, cancelled] }
+        - name: date_from
+          in: query
+          required: false
+          schema: { type: string, format: date }
+          description: Only activities on/after this date
+        - name: date_to
+          in: query
+          required: false
+          schema: { type: string, format: date }
+          description: Only activities on/before this date
+      responses:
+        "200":
+          description: List of activities
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CommunityActivityOut" }
+        "422":
+          description: Invalid corner/status filter value
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+  /community/activities/{activity_id}:
+    get:
+      tags: [Community]
+      summary: Get a community activity
+      parameters:
+        - name: activity_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The activity, including derived signup_count/spots_remaining
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CommunityActivityOut" }
+        "404":
+          description: Activity not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "Activity 'nope' not found."
+
+  /community/activities/{activity_id}/signup:
+    post:
+      tags: [Community]
+      summary: Sign up for a community activity
+      description: >
+        Records a resident's signup/registration for an activity. Rejected
+        if the activity is completed/cancelled, its date has already passed,
+        it is at capacity, or the resident has already signed up.
+      parameters:
+        - name: activity_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ActivitySignupCreate" }
+            examples:
+              signup:
+                summary: Sign up for kids summer camp
+                value:
+                  resident_id: "8f1c2b91-0a63-4c4e-9a2f-5c1b7e0d3a11"
+                  notes: "Bringing a friend"
+      responses:
+        "201":
+          description: Signup recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ActivitySignupOut" }
+        "400":
+          description: Activity closed, already occurred, or at capacity
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              examples:
+                closed:
+                  summary: Activity completed/cancelled
+                  value:
+                    detail: "Activity '3d7a1f22' is completed and no longer accepting signups."
+                at_capacity:
+                  summary: Capacity reached
+                  value:
+                    detail: "Activity '3d7a1f22' is at capacity (20)."
+        "404":
+          description: Activity or resident not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "409":
+          description: Resident already signed up for this activity
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "Resident '8f1c2b91-0a63-4c4e-9a2f-5c1b7e0d3a11' has already signed up for this activity."
+        "422":
+          description: Validation error — resident_id missing
+
+  /community/activities/{activity_id}/signups:
+    get:
+      tags: [Community]
+      summary: List signups for an activity
+      parameters:
+        - name: activity_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: List of signups
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ActivitySignupOut" }
+        "404":
+          description: Activity not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+components:
+  schemas:
+
+    CommunityActivityOut:
+      type: object
+      properties:
+        activity_id:   { type: string }
+        corner:        { type: string, enum: [kids, senior, recreational, social] }
+        title:         { type: string }
+        description:   { type: string, nullable: true }
+        activity_date: { type: string, format: date, nullable: true }
+        capacity:      { type: integer, nullable: true, description: "null means unlimited signups" }
+        status:        { type: string, enum: [upcoming, completed, cancelled] }
+        signup_count:  { type: integer, description: "Number of residents currently signed up" }
+        spots_remaining: { type: integer, nullable: true, description: "capacity - signup_count; null when capacity is unlimited" }
+        created_at:    { type: string, format: date-time }
+        updated_at:    { type: string, format: date-time }
+
+    ActivitySignupCreate:
+      type: object
+      required: [resident_id]
+      properties:
+        resident_id: { type: string }
+        notes:       { type: string, maxLength: 200, nullable: true }
+
+    ActivitySignupOut:
+      type: object
+      properties:
+        signup_id:    { type: string }
+        activity_id:  { type: string }
+        resident_id:  { type: string }
+        notes:        { type: string, nullable: true }
+        signed_up_at: { type: string, format: date-time }
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail: { type: string }

@@ -1,0 +1,356 @@
+openapi: 3.0.3
+info:
+  title: Payment Reminders API — BE-12
+  version: "1.0"
+  description: |
+    Payment reminder management for the Jains Kences Retreat Apartment Association.
+
+    **User story**: As an Association Manager, I want to send payment reminders to
+    residents with pending or overdue bills so that dues are collected on time.
+
+    **Reminder lifecycle**:
+    ```
+    [created] → sent → dismissed
+                    ↘ failed
+    ```
+
+    **Duplicate prevention**: Only one active (`sent`) reminder of the same
+    `reminder_type` is allowed per bill at a time. Dismiss the existing one
+    before sending another of the same type.
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Payment Reminders
+    description: Send, list, dismiss, and report on payment reminders
+
+paths:
+
+  /reminders:
+    post:
+      tags: [Payment Reminders]
+      summary: Send a payment reminder
+      operationId: sendReminder
+      description: |
+        Sends a payment reminder to a resident for a specific bill.
+
+        **Validations**:
+        - Bill must exist
+        - Resident must exist
+        - Bill must belong to the specified resident
+        - Bill status must be `pending`, `overdue`, or `partially_paid`
+        - No active reminder of the same `reminder_type` already exists for this bill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReminderCreate'
+            example:
+              bill_id: "a1b2c3d4-0000-0000-0000-000000000001"
+              resident_id: "r1r2r3r4-0000-0000-0000-000000000001"
+              reminder_type: "first_notice"
+              channel: "in_app"
+      responses:
+        '201':
+          description: Reminder sent successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReminderOut'
+        '400':
+          description: Bill not remindable or resident mismatch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              examples:
+                bill_paid:
+                  summary: Bill already paid
+                  value:
+                    detail: "Cannot send a reminder for a bill with status 'paid'. Only ['overdue', 'partially_paid', 'pending'] bills can be reminded."
+                bill_cancelled:
+                  summary: Bill cancelled
+                  value:
+                    detail: "Cannot send a reminder for a bill with status 'cancelled'. Only ['overdue', 'partially_paid', 'pending'] bills can be reminded."
+                resident_mismatch:
+                  summary: Bill does not belong to resident
+                  value:
+                    detail: "Bill does not belong to the specified resident."
+        '404':
+          description: Bill or resident not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+        '409':
+          description: Duplicate active reminder
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              example:
+                detail: "An active 'first_notice' reminder already exists for bill 'a1b2c3d4-...'. Dismiss it before sending another."
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+
+    get:
+      tags: [Payment Reminders]
+      summary: List reminders
+      operationId: listReminders
+      description: |
+        Returns a paginated list of reminders.
+        - Filter by `resident_id` to get all reminders for a resident.
+        - Filter by `bill_id` to get all reminders for a specific bill.
+        - Filter by `status` to get sent/dismissed/failed reminders.
+        - `resident_id` takes precedence over `bill_id` if both are supplied.
+      parameters:
+        - name: resident_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by resident UUID
+        - name: bill_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by bill UUID
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [sent, dismissed, failed]
+          description: Filter by reminder status
+        - name: skip
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+          description: Records to skip (pagination)
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+          description: Max records to return
+      responses:
+        '200':
+          description: Reminders returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReminderListResponse'
+
+  /reminders/stats:
+    get:
+      tags: [Payment Reminders]
+      summary: Reminder statistics
+      operationId: getReminderStats
+      description: |
+        Returns aggregate counts of reminders grouped by status, type, and channel.
+        Always returns 200 — an empty database yields zeroed counts.
+      responses:
+        '200':
+          description: Statistics returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReminderStats'
+              example:
+                total: 42
+                sent: 30
+                dismissed: 10
+                failed: 2
+                by_type:
+                  first_notice: 20
+                  second_notice: 12
+                  final_notice: 8
+                  custom: 2
+                by_channel:
+                  in_app: 25
+                  email: 10
+                  sms: 5
+                  push: 2
+
+  /reminders/{reminder_id}:
+    get:
+      tags: [Payment Reminders]
+      summary: Get a reminder
+      operationId: getReminder
+      parameters:
+        - name: reminder_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: UUID of the reminder
+      responses:
+        '200':
+          description: Reminder returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReminderOut'
+        '404':
+          description: Reminder not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+
+  /reminders/{reminder_id}/dismiss:
+    put:
+      tags: [Payment Reminders]
+      summary: Dismiss a reminder
+      operationId: dismissReminder
+      description: |
+        Marks a reminder as dismissed and records the `dismissed_at` timestamp.
+        Returns 400 if the reminder is already dismissed.
+      parameters:
+        - name: reminder_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: UUID of the reminder to dismiss
+      responses:
+        '200':
+          description: Reminder dismissed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReminderOut'
+        '400':
+          description: Reminder already dismissed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              example:
+                detail: "Reminder has already been dismissed."
+        '404':
+          description: Reminder not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+
+components:
+  schemas:
+
+    ReminderCreate:
+      type: object
+      required: [bill_id, resident_id, reminder_type]
+      properties:
+        bill_id:
+          type: string
+          description: UUID of the bill to remind about
+        resident_id:
+          type: string
+          description: UUID of the resident to remind
+        reminder_type:
+          type: string
+          enum: [first_notice, second_notice, final_notice, custom]
+          description: Type of reminder notice
+        channel:
+          type: string
+          enum: [email, sms, push, in_app]
+          default: in_app
+          description: Delivery channel for the reminder
+
+    ReminderOut:
+      type: object
+      properties:
+        reminder_id:
+          type: string
+        bill_id:
+          type: string
+        resident_id:
+          type: string
+        reminder_type:
+          type: string
+          enum: [first_notice, second_notice, final_notice, custom]
+        channel:
+          type: string
+          enum: [email, sms, push, in_app]
+        status:
+          type: string
+          enum: [sent, dismissed, failed]
+        sent_at:
+          type: string
+          format: date-time
+        dismissed_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    ReminderListResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+          description: Number of items in this response
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReminderOut'
+
+    ReminderStats:
+      type: object
+      properties:
+        total:
+          type: integer
+        sent:
+          type: integer
+        dismissed:
+          type: integer
+        failed:
+          type: integer
+        by_type:
+          type: object
+          additionalProperties:
+            type: integer
+        by_channel:
+          type: object
+          additionalProperties:
+            type: integer
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail:
+          type: string
+
+    ValidationError:
+      type: object
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            properties:
+              loc:
+                type: array
+                items:
+                  type: string
+              msg:
+                type: string
+              type:
+                type: string

@@ -1,0 +1,340 @@
+openapi: 3.0.3
+info:
+  title: Buy & Sell Marketplace API — BE-30
+  description: >
+    Buy & Sell Marketplace API for the Jains Kences Retreat Apartment
+    Association Management System. Residents list second-hand products for
+    sale, browse listings with category filters, wishlist items to revisit,
+    and mark their own listings as sold.
+
+    Listing rules: price must be greater than zero and within Numeric(10,2)
+    range; the image reference (`image_url`), when supplied, must be an
+    http(s) URL or a root-relative path. Only the selling resident can mark a
+    listing sold, and only while it is still `available`. A resident cannot
+    wishlist their own listing, and cannot wishlist the same listing twice.
+
+    Errors: 404 unknown listing or resident, 409 duplicate wishlist entry,
+    403 non-seller marking sold, 400 listing already sold / wishlisting own
+    listing, 422 invalid input.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Marketplace
+    description: List, browse, wishlist and sell products within the community
+
+paths:
+
+  /marketplace/listings:
+    post:
+      tags: [Marketplace]
+      summary: List a product for sale
+      description: >
+        Creates a marketplace listing for the selling resident. Price must be
+        greater than zero; the image reference, if given, must be a valid
+        http(s) URL or root-relative path.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MarketplaceListingCreate" }
+            examples:
+              sofa:
+                summary: List a 3-seater sofa
+                value:
+                  resident_id: "8f1c2b91-0a63-4c4e-9a2f-5c1b7e0d3a11"
+                  title: "3-seater fabric sofa"
+                  description: "Grey fabric sofa, 3 years old. Pickup from A-wing."
+                  price: 8500.00
+                  category: "Furniture"
+                  image_url: "https://cdn.example.com/listings/sofa.jpg"
+      responses:
+        "201":
+          description: Listing created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketplaceListingOut" }
+        "404":
+          description: Selling resident not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "Resident '8f1c2b91' not found."
+        "422":
+          description: Validation error — bad price, category or image reference
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+    get:
+      tags: [Marketplace]
+      summary: Browse marketplace listings
+      description: >
+        Returns listings newest-first. Filter by category, status or
+        resident_id (a resident's own listings).
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [Furniture, Electronics, Books, "Kids & Toys", Kitchen, Sports, Other]
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [available, sold] }
+        - name: resident_id
+          in: query
+          required: false
+          schema: { type: string }
+          description: Only listings from this seller
+      responses:
+        "200":
+          description: List of listings
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/MarketplaceListingOut" }
+        "422":
+          description: Invalid category/status filter value
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+  /marketplace/listings/{listing_id}:
+    get:
+      tags: [Marketplace]
+      summary: Get a marketplace listing
+      parameters:
+        - name: listing_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The listing, including derived wishlist_count
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketplaceListingOut" }
+        "404":
+          description: Listing not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "Listing 'nope' not found."
+
+  /marketplace/listings/{listing_id}/sold:
+    put:
+      tags: [Marketplace]
+      summary: Mark a listing as sold
+      description: >
+        Marks the listing as sold. Only the seller may do this, and only
+        while the listing is still available.
+      parameters:
+        - name: listing_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ActingResident" }
+            examples:
+              seller:
+                summary: Seller marks their listing sold
+                value:
+                  resident_id: "8f1c2b91-0a63-4c4e-9a2f-5c1b7e0d3a11"
+      responses:
+        "200":
+          description: Listing marked as sold
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketplaceListingOut" }
+        "400":
+          description: Listing is already sold
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "Listing '3d7a1f22' is already marked as sold."
+        "403":
+          description: Caller is not the seller
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "Only the seller can mark this listing as sold."
+        "404":
+          description: Listing not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "422":
+          description: Validation error — resident_id missing
+
+  /marketplace/listings/{listing_id}/wishlist:
+    post:
+      tags: [Marketplace]
+      summary: Save a listing to a wishlist
+      description: >
+        Adds the listing to the resident's wishlist. Rejected if the resident
+        owns the listing or has already wishlisted it.
+      parameters:
+        - name: listing_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ActingResident" }
+            examples:
+              save:
+                summary: Save a sofa to my wishlist
+                value:
+                  resident_id: "a11ce000-0a63-4c4e-9a2f-5c1b7e0d3a11"
+      responses:
+        "201":
+          description: Listing wishlisted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WishlistEntryOut" }
+        "400":
+          description: Cannot wishlist your own listing
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "You cannot wishlist your own listing."
+        "404":
+          description: Listing or resident not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "409":
+          description: Resident already wishlisted this listing
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "Resident 'a11ce000' has already wishlisted this listing."
+        "422":
+          description: Validation error — resident_id missing
+
+  /marketplace/listings/{listing_id}/wishlist/{resident_id}:
+    delete:
+      tags: [Marketplace]
+      summary: Remove a listing from a wishlist
+      parameters:
+        - name: listing_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: resident_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204":
+          description: Listing removed from wishlist
+        "404":
+          description: Resident has not wishlisted this listing
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+  /marketplace/residents/{resident_id}/wishlist:
+    get:
+      tags: [Marketplace]
+      summary: List a resident's wishlist
+      description: Returns the listings a resident has saved, newest save first.
+      parameters:
+        - name: resident_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: List of wishlisted listings
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/MarketplaceListingOut" }
+        "404":
+          description: Resident not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+components:
+  schemas:
+
+    MarketplaceListingCreate:
+      type: object
+      required: [resident_id, title, price, category]
+      properties:
+        resident_id: { type: string, description: "UUID of the selling resident" }
+        title:       { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, nullable: true }
+        price:
+          type: number
+          format: decimal
+          minimum: 0
+          exclusiveMinimum: true
+          maximum: 99999999.99
+          description: "Asking price; must be > 0"
+        category:
+          type: string
+          enum: [Furniture, Electronics, Books, "Kids & Toys", Kitchen, Sports, Other]
+        image_url:
+          type: string
+          maxLength: 500
+          nullable: true
+          description: "Primary image reference — an http(s) URL or root-relative path"
+
+    MarketplaceListingOut:
+      type: object
+      properties:
+        listing_id:     { type: string }
+        resident_id:    { type: string }
+        title:          { type: string }
+        description:    { type: string, nullable: true }
+        price:          { type: number, format: decimal }
+        category:
+          type: string
+          enum: [Furniture, Electronics, Books, "Kids & Toys", Kitchen, Sports, Other]
+        image_url:      { type: string, nullable: true }
+        status:         { type: string, enum: [available, sold] }
+        wishlist_count: { type: integer, description: "Number of residents who wishlisted this listing" }
+        listed_at:      { type: string, format: date-time }
+        updated_at:     { type: string, format: date-time }
+
+    ActingResident:
+      type: object
+      description: >
+        Identifies the resident performing the action (marking sold, or
+        wishlisting). Carries just the resident UUID.
+      required: [resident_id]
+      properties:
+        resident_id: { type: string }
+
+    WishlistEntryOut:
+      type: object
+      properties:
+        wishlist_id: { type: string }
+        listing_id:  { type: string }
+        resident_id: { type: string }
+        added_at:    { type: string, format: date-time }
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail: { type: string }

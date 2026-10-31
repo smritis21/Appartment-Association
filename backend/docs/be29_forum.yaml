@@ -1,0 +1,508 @@
+openapi: "3.0.3"
+info:
+  title: "BE-29 — Forum & Lost-and-Found API"
+  version: "1.0.0"
+  description: |
+    Endpoints for the resident discussion forum and the lost-and-found board.
+    Posts are categorised (general, events, classifieds, safety, lost_found)
+    and support flat (non-nested) comments with pagination.
+    Lost-and-found items track a type (lost/found) and a status (open/resolved).
+
+servers:
+  - url: http://localhost:8000/api/v1
+
+tags:
+  - name: Forum Posts
+    description: Create and browse forum discussion posts.
+  - name: Forum Comments
+    description: Comment on forum posts.
+  - name: Lost & Found
+    description: Report and track lost or found items.
+
+paths:
+  /forum/posts:
+    post:
+      tags: [Forum Posts]
+      operationId: createForumPost
+      summary: Create a forum post
+      description: |
+        Create a new discussion post.
+        - Up to 3 image URL references may be attached (`image_refs`).
+        - `author_id` is optional.
+        - `category` must be one of: general | events | classifieds | safety | lost_found.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForumPostCreate'
+            example:
+              title: "Parking rules reminder"
+              body: "Please do not park in the visitor bay overnight."
+              category: "general"
+              image_refs: []
+              author_id: "resident-uuid-123"
+      responses:
+        "201":
+          description: Post created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForumPostOut'
+        "400":
+          description: Too many image references
+        "422":
+          description: Validation error
+
+    get:
+      tags: [Forum Posts]
+      operationId: listForumPosts
+      summary: List forum posts
+      description: |
+        Returns a paginated list of forum posts, newest first.
+        Optionally filter by `category`.
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/PostCategory'
+          description: Filter by post category.
+        - name: skip
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Paginated list of posts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForumPostListResponse'
+
+  /forum/posts/{post_id}:
+    get:
+      tags: [Forum Posts]
+      operationId: getForumPost
+      summary: Get a single forum post
+      description: Returns a forum post with its comment count.
+      parameters:
+        - name: post_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Forum post detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForumPostOut'
+        "404":
+          description: Post not found
+
+  /forum/posts/{post_id}/comments:
+    post:
+      tags: [Forum Comments]
+      operationId: createForumComment
+      summary: Add a comment to a post
+      description: |
+        Add a flat (non-nested) comment to an existing forum post.
+        Returns 404 if the post does not exist.
+      parameters:
+        - name: post_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForumCommentCreate'
+      responses:
+        "201":
+          description: Comment created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForumCommentOut'
+        "404":
+          description: Post not found
+        "422":
+          description: Validation error
+
+    get:
+      tags: [Forum Comments]
+      operationId: listForumComments
+      summary: List comments for a post
+      description: |
+        Returns a paginated list of comments for a post, ordered oldest-first.
+        Returns 404 if the post does not exist.
+      parameters:
+        - name: post_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: skip
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Paginated comment list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ForumCommentListResponse'
+        "404":
+          description: Post not found
+
+  /forum/lost-found:
+    post:
+      tags: [Lost & Found]
+      operationId: createLostFoundItem
+      summary: Report a lost or found item
+      description: |
+        Report an item as either 'lost' or 'found'.
+        New items always start with status 'open'.
+        An optional single image URL (`image_ref`) may be provided.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LostFoundItemCreate'
+            example:
+              item_type: "lost"
+              title: "Blue umbrella"
+              description: "Left near the lift on Floor 3."
+              image_ref: "https://cdn.example.com/umbrella.jpg"
+              reported_by: "resident-uuid-456"
+      responses:
+        "201":
+          description: Item reported
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LostFoundItemOut'
+        "422":
+          description: Validation error
+
+    get:
+      tags: [Lost & Found]
+      operationId: listLostFoundItems
+      summary: List lost and found items
+      description: |
+        Returns a paginated list of lost/found items, newest first.
+        Filter by `item_type` and/or `status`.
+      parameters:
+        - name: item_type
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/LostFoundType'
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/LostFoundStatus'
+        - name: skip
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Paginated list of items
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LostFoundListResponse'
+
+  /forum/lost-found/{item_id}:
+    get:
+      tags: [Lost & Found]
+      operationId: getLostFoundItem
+      summary: Get a single lost/found item
+      parameters:
+        - name: item_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Item detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LostFoundItemOut'
+        "404":
+          description: Item not found
+
+  /forum/lost-found/{item_id}/status:
+    patch:
+      tags: [Lost & Found]
+      operationId: updateLostFoundStatus
+      summary: Update item status
+      description: |
+        Update the status of a lost/found item.
+        Allowed values: `open`, `resolved`.
+        Updating an already-resolved item is idempotent (returns 200).
+      parameters:
+        - name: item_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LostFoundStatusUpdate'
+            example:
+              status: "resolved"
+      responses:
+        "200":
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LostFoundItemOut'
+        "404":
+          description: Item not found
+        "422":
+          description: Invalid status value
+
+components:
+  schemas:
+    PostCategory:
+      type: string
+      enum: [general, events, classifieds, safety, lost_found]
+
+    LostFoundType:
+      type: string
+      enum: [lost, found]
+
+    LostFoundStatus:
+      type: string
+      enum: [open, resolved]
+
+    ForumPostCreate:
+      type: object
+      required: [title, body]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        body:
+          type: string
+          minLength: 1
+          maxLength: 10000
+          description: Post body text; maximum 10 000 characters.
+        category:
+          $ref: '#/components/schemas/PostCategory'
+          default: general
+        image_refs:
+          type: array
+          items:
+            type: string
+          maxItems: 3
+          default: []
+        author_id:
+          type: string
+          nullable: true
+
+    ForumPostOut:
+      type: object
+      properties:
+        post_id:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        category:
+          type: string
+        image_refs:
+          type: array
+          items:
+            type: string
+        author_id:
+          type: string
+          nullable: true
+        comment_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ForumPostListResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+        skip:
+          type: integer
+        limit:
+          type: integer
+        posts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ForumPostOut'
+
+    ForumCommentCreate:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: Comment body text; maximum 2 000 characters.
+        author_id:
+          type: string
+          nullable: true
+
+    ForumCommentOut:
+      type: object
+      properties:
+        comment_id:
+          type: string
+        post_id:
+          type: string
+        body:
+          type: string
+        author_id:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    ForumCommentListResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+        skip:
+          type: integer
+        limit:
+          type: integer
+        comments:
+          type: array
+          items:
+            $ref: '#/components/schemas/ForumCommentOut'
+
+    LostFoundItemCreate:
+      type: object
+      required: [item_type, title]
+      properties:
+        item_type:
+          $ref: '#/components/schemas/LostFoundType'
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          nullable: true
+          maxLength: 1000
+        image_ref:
+          type: string
+          nullable: true
+          maxLength: 500
+          description: Single image URL reference.
+        reported_by:
+          type: string
+          nullable: true
+          maxLength: 100
+
+    LostFoundItemOut:
+      type: object
+      properties:
+        item_id:
+          type: string
+        item_type:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        image_ref:
+          type: string
+          nullable: true
+        status:
+          type: string
+        reported_by:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    LostFoundStatusUpdate:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/LostFoundStatus'
+
+    LostFoundListResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+        skip:
+          type: integer
+        limit:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LostFoundItemOut'

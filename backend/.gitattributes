@@ -1,0 +1,10 @@
+# Normalise all text files to LF in the repository.
+# Windows checkouts will still use CRLF locally, but the repo stays LF.
+* text=auto eol=lf
+
+# Explicitly mark binary files so git never tries to diff them
+*.db    binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.ico   binary

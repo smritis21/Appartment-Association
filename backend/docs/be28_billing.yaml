@@ -1,0 +1,620 @@
+openapi: 3.0.3
+info:
+  title: Resident Billing API — BE-28
+  description: |
+    The resident-facing read side of billing for Jains Kences Retreat. BE-11
+    covers creating a bill and processing a payment; BE-28 serves them back.
+
+    **What this API adds**
+
+    - Bills served as full statements — line items, GST, payments received,
+      live late fee, outstanding balance.
+    - Receipts generated for successful payments.
+    - Filterable, paginated payment history (resident-scoped and society-wide).
+    - Late-fee accrual with a grace period, a monthly rate, daily or monthly
+      proration, and a cap.
+
+    **Late-fee rules**
+
+    ```
+    days_overdue     = as_of − due_date                    (0 when not yet due)
+    chargeable_days  = max(days_overdue − grace_days, 0)
+    principal        = total_amount − payments received    (floored at 0)
+
+    daily proration   fee = principal × rate% × chargeable_days / 30
+    monthly proration fee = principal × rate% × ceil(chargeable_days / 30)
+
+    fee = min(fee, total_amount × max_percent%)
+    ```
+
+    - The fee is charged on the **principal** outstanding, never on an earlier
+      late fee. Fees do not compound.
+    - A part payment immediately shrinks the base the fee is charged on.
+    - A fully paid bill accrues nothing, whenever it was paid.
+    - A month is a nominal 30 days, so two bills overdue by the same number of
+      days always attract the same fee.
+
+    **Where the rules come from**
+
+    Four `apartment_config` keys (BE-40), each falling back to a default when
+    unset:
+
+    | Key | Default | Range |
+    |---|---|---|
+    | `late_fee_grace_days`    | `7`     | 0–90 |
+    | `late_fee_rate_percent`  | `2.0`   | 0–10 (percent per month) |
+    | `late_fee_max_percent`   | `20.0`  | 0–100 (percent of bill total) |
+    | `late_fee_proration`     | `daily` | `daily` / `monthly` |
+
+    Accrual stores the grace period and rate that were in force at the time on
+    the bill itself, so a later config change never retroactively rewrites a
+    fee a resident has already been shown.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Payments & Billing
+    description: Bill statements, receipts, payment history, and late-fee accrual
+
+paths:
+
+  /residents/{resident_id}/bills:
+    get:
+      tags: [Payments & Billing]
+      summary: List a resident's bills
+      description: |
+        Returns the resident's bills, newest due date first, each row carrying the
+        **live** late fee and what is still outstanding.
+
+        `total` and `total_outstanding` describe the whole filtered set, not just
+        the rows on this page.
+      parameters:
+        - name: resident_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, paid, overdue, partially_paid] }
+        - name: billing_month
+          in: query
+          schema: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$' }
+          example: "2024-06"
+        - name: due_from
+          in: query
+          schema: { type: string, format: date }
+          description: Bills due on or after this date
+        - name: due_to
+          in: query
+          schema: { type: string, format: date }
+          description: Bills due on or before this date
+        - name: unpaid_only
+          in: query
+          schema: { type: boolean, default: false }
+          description: Only pending / overdue / partially paid bills
+        - name: skip
+          in: query
+          schema: { type: integer, default: 0, minimum: 0 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+      responses:
+        "200":
+          description: Page of bills
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillHistoryPage" }
+        "422": { description: Validation error }
+
+  /bills/{bill_id}/statement:
+    get:
+      tags: [Payments & Billing]
+      summary: Serve a bill statement
+      description: |
+        Serves one bill in full: the charge line items with their taxable subtotal
+        and GST, every payment received against it, the live late fee with its
+        breakdown, and the outstanding balance.
+
+        `late_fee` is recomputed on every read. `late_fee_accrued_till` tells you
+        the date the last **persisted** snapshot was computed up to — it is `null`
+        until accrual has run.
+
+        Failed and cancelled payments appear in `payments` for audit but never
+        reduce `amount_paid` or `outstanding`.
+      parameters:
+        - name: bill_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: as_of
+          in: query
+          schema: { type: string, format: date }
+          description: Compute the late fee as of this date (defaults to today)
+      responses:
+        "200":
+          description: Bill statement
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillStatement" }
+        "404":
+          description: Bill not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+  /bills/{bill_id}/late-fee:
+    get:
+      tags: [Payments & Billing]
+      summary: Late-fee breakdown for a bill
+      description: |
+        Returns every figure behind the late fee so the amount can be explained
+        line by line — days overdue, whether the grace period is still running,
+        chargeable days, the rate and proration basis in force, the principal the
+        fee is charged on, the cap, and whether the cap bit.
+
+        **Read-only** — nothing is written. `as_of` may be a future date, which is
+        how a resident asks what they will owe if they pay later.
+      parameters:
+        - name: bill_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: as_of
+          in: query
+          schema: { type: string, format: date }
+          description: Compute as of this date (defaults to today)
+      responses:
+        "200":
+          description: Late-fee breakdown
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LateFeeBreakdown" }
+              example:
+                bill_id: "uuid-of-bill"
+                due_date: "2024-06-30"
+                as_of: "2024-08-06"
+                rules:
+                  grace_days: 7
+                  rate_percent: 2.0
+                  max_percent: 20.0
+                  proration: "daily"
+                days_overdue: 37
+                chargeable_days: 30
+                within_grace: false
+                principal_outstanding: 4484.00
+                uncapped_late_fee: 89.68
+                cap_amount: 896.80
+                capped: false
+                late_fee: 89.68
+                total_payable: 4573.68
+        "404":
+          description: Bill not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+  /bills/late-fee/accrue:
+    post:
+      tags: [Payments & Billing]
+      summary: Accrue late fees on all outstanding bills
+      description: |
+        Recomputes and persists the late-fee snapshot for every bill that is
+        pending, overdue or partially paid. Bills still marked `pending` that are
+        past their grace period are moved to `overdue`; a `partially_paid` bill
+        keeps its status.
+
+        Idempotent — running it twice on the same date reports `bills_updated: 0`
+        the second time. This is the endpoint a nightly job should call.
+      parameters:
+        - name: as_of
+          in: query
+          schema: { type: string, format: date }
+          description: Accrue as of this date (defaults to today)
+      responses:
+        "200":
+          description: Accrual summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LateFeeAccrualSummary" }
+
+  /bills/{bill_id}/late-fee/accrue:
+    post:
+      tags: [Payments & Billing]
+      summary: Accrue the late fee on one bill
+      description: |
+        Computes the late fee for a single bill and persists it, along with the
+        grace period and rate that were in force. Storing the rules used means a
+        later change to `apartment_config` never retroactively rewrites a fee a
+        resident has already been shown.
+      parameters:
+        - name: bill_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: as_of
+          in: query
+          schema: { type: string, format: date }
+          description: Accrue as of this date (defaults to today)
+      responses:
+        "200":
+          description: Late fee accrued and persisted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LateFeeAccrualOut" }
+        "404":
+          description: Bill not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "409":
+          description: Bill is already paid in full — nothing can accrue
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+  /payments/{payment_id}/receipt:
+    get:
+      tags: [Payments & Billing]
+      summary: Serve a payment receipt
+      description: |
+        Generates the receipt for a successful payment — issuer, payer, the bill
+        it settles, the amount, and the balance as it stood **immediately after**
+        that payment. A receipt records a moment, so re-fetching it after a later
+        payment returns the same figures.
+
+        Only `paid` payments produce a receipt. A failed or cancelled attempt is
+        kept for audit but returns 409 rather than a document implying money
+        changed hands.
+
+        `society.name` and `society.contact_number` come from the
+        `society_name` and `emergency_contact_number` config keys (BE-40).
+      parameters:
+        - name: payment_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Receipt
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Receipt" }
+        "404":
+          description: Payment not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "409":
+          description: Payment was not successful — no receipt is issued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+  /residents/{resident_id}/payments:
+    get:
+      tags: [Payments & Billing]
+      summary: Filterable payment history for a resident
+      description: |
+        The resident-facing payment history.
+
+        `total_amount` counts only successful (`paid`) rows, so a history that
+        includes a failed attempt does not overstate what the resident has paid.
+        Both `total` and `total_amount` describe the whole filtered set, not the
+        page.
+
+        `date_to` is inclusive of the whole day — a payment made at 14:00 is
+        included by `date_to` set to its own date.
+      parameters:
+        - name: resident_id
+          in: path
+          required: true
+          schema: { type: string }
+        - { $ref: "#/components/parameters/BillIdFilter" }
+        - { $ref: "#/components/parameters/PaymentMethodFilter" }
+        - { $ref: "#/components/parameters/PaymentStatusFilter" }
+        - { $ref: "#/components/parameters/DateFrom" }
+        - { $ref: "#/components/parameters/DateTo" }
+        - { $ref: "#/components/parameters/MinAmount" }
+        - { $ref: "#/components/parameters/MaxAmount" }
+        - { $ref: "#/components/parameters/HistorySort" }
+        - { $ref: "#/components/parameters/Skip" }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: Page of payment history
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentHistoryPage" }
+        "422":
+          description: Invalid filter range (date_from > date_to, or min_amount > max_amount)
+
+  /billing/payments:
+    get:
+      tags: [Payments & Billing]
+      summary: Filterable payment history (society-wide)
+      description: |
+        The same filterable history as the resident endpoint, but across every
+        resident — the management view. Pass `resident_id` to narrow it down.
+      parameters:
+        - name: resident_id
+          in: query
+          schema: { type: string }
+          description: Filter by resident UUID
+        - { $ref: "#/components/parameters/BillIdFilter" }
+        - { $ref: "#/components/parameters/PaymentMethodFilter" }
+        - { $ref: "#/components/parameters/PaymentStatusFilter" }
+        - { $ref: "#/components/parameters/DateFrom" }
+        - { $ref: "#/components/parameters/DateTo" }
+        - { $ref: "#/components/parameters/MinAmount" }
+        - { $ref: "#/components/parameters/MaxAmount" }
+        - { $ref: "#/components/parameters/HistorySort" }
+        - { $ref: "#/components/parameters/Skip" }
+        - { $ref: "#/components/parameters/Limit" }
+      responses:
+        "200":
+          description: Page of payment history
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentHistoryPage" }
+        "422":
+          description: Invalid filter range (date_from > date_to, or min_amount > max_amount)
+
+components:
+
+  parameters:
+
+    BillIdFilter:
+      name: bill_id
+      in: query
+      schema: { type: string }
+      description: Only payments against this bill
+
+    PaymentMethodFilter:
+      name: payment_method
+      in: query
+      schema: { type: string, enum: [upi, online_transfer, cheque, cash] }
+
+    PaymentStatusFilter:
+      name: status
+      in: query
+      schema: { type: string, enum: [pending, paid, failed, cancelled, refunded] }
+
+    DateFrom:
+      name: date_from
+      in: query
+      schema: { type: string, format: date }
+      description: Payments made on or after this date (inclusive)
+
+    DateTo:
+      name: date_to
+      in: query
+      schema: { type: string, format: date }
+      description: Payments made on or before this date (inclusive of the whole day)
+
+    MinAmount:
+      name: min_amount
+      in: query
+      schema: { type: number, minimum: 0 }
+
+    MaxAmount:
+      name: max_amount
+      in: query
+      schema: { type: number, minimum: 0 }
+
+    HistorySort:
+      name: sort
+      in: query
+      schema:
+        type: string
+        enum: [paid_on_desc, paid_on_asc, amount_desc, amount_asc]
+        default: paid_on_desc
+
+    Skip:
+      name: skip
+      in: query
+      schema: { type: integer, default: 0, minimum: 0 }
+
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+
+  schemas:
+
+    # ── Late fees ────────────────────────────────────────────────────────────
+
+    LateFeeRules:
+      type: object
+      description: The society-wide rules that were in force for a calculation.
+      properties:
+        grace_days:   { type: integer, minimum: 0, example: 7, description: "Days after due_date before a fee starts" }
+        rate_percent: { type: number, minimum: 0, example: 2.0, description: "Late fee rate, percent per month" }
+        max_percent:  { type: number, minimum: 0, example: 20.0, description: "Cap on the fee, percent of bill total" }
+        proration:    { type: string, enum: [daily, monthly], example: "daily" }
+
+    LateFeeBreakdown:
+      type: object
+      description: Every figure behind a late fee, so the amount can be explained line by line.
+      properties:
+        bill_id:               { type: string }
+        due_date:              { type: string, format: date }
+        as_of:                 { type: string, format: date }
+        rules:                 { $ref: "#/components/schemas/LateFeeRules" }
+        days_overdue:          { type: integer, description: "Calendar days past due_date (0 if not yet due)" }
+        chargeable_days:       { type: integer, description: "Overdue days remaining after the grace period" }
+        within_grace:          { type: boolean, description: "True while the grace period is still running" }
+        principal_outstanding: { type: number, description: "Bill total minus payments received — the base the fee is charged on" }
+        uncapped_late_fee:     { type: number, description: "Fee before the cap is applied" }
+        cap_amount:            { type: number, description: "Maximum fee allowed for this bill" }
+        capped:                { type: boolean, description: "True when the cap reduced the fee" }
+        late_fee:              { type: number, description: "Late fee payable as of `as_of`" }
+        total_payable:         { type: number, description: "principal_outstanding + late_fee" }
+
+    LateFeeAccrualOut:
+      type: object
+      description: Result of persisting a late-fee snapshot onto one bill.
+      properties:
+        bill_id:               { type: string }
+        previous_late_fee:     { type: number }
+        late_fee:              { type: number }
+        late_fee_accrued_till: { type: string, format: date }
+        status:                { type: string, enum: [pending, paid, overdue, partially_paid] }
+        breakdown:             { $ref: "#/components/schemas/LateFeeBreakdown" }
+
+    LateFeeAccrualSummary:
+      type: object
+      description: Result of the bulk accrual run.
+      properties:
+        as_of:                { type: string, format: date }
+        bills_evaluated:      { type: integer, description: "Outstanding bills considered" }
+        bills_updated:        { type: integer, description: "Bills whose snapshot or status changed" }
+        total_late_fee_added: { type: number, description: "Net change in late fees across the run" }
+        bills_marked_overdue: { type: integer, description: "Bills moved from pending to overdue" }
+
+    # ── Bill statement ───────────────────────────────────────────────────────
+
+    BillLineItems:
+      type: object
+      properties:
+        maintenance:      { type: number }
+        water:            { type: number }
+        parking:          { type: number }
+        miscellaneous:    { type: number }
+        discount:         { type: number }
+        taxable_subtotal: { type: number, description: "maintenance + water + parking + misc − discount" }
+        gst:              { type: number }
+        total_amount:     { type: number }
+
+    BillStatement:
+      type: object
+      properties:
+        bill_id:               { type: string }
+        resident_id:           { type: string }
+        resident_name:         { type: string, nullable: true }
+        flat_number:           { type: string, nullable: true }
+        billing_month:         { type: string, example: "2024-06" }
+        due_date:              { type: string, format: date }
+        status:                { type: string, enum: [pending, paid, overdue, partially_paid] }
+        line_items:            { $ref: "#/components/schemas/BillLineItems" }
+        amount_paid:           { type: number, description: "Sum of successful payments against this bill" }
+        late_fee:              { type: number, description: "Live late fee as of today (or `as_of`)" }
+        late_fee_accrued_till: { type: string, format: date, nullable: true, description: "Date the persisted snapshot was computed up to" }
+        outstanding:           { type: number, description: "total_amount + late_fee − amount_paid" }
+        late_fee_breakdown:    { $ref: "#/components/schemas/LateFeeBreakdown" }
+        payments:
+          type: array
+          items: { $ref: "#/components/schemas/PaymentOut" }
+
+    BillWithLateFee:
+      type: object
+      properties:
+        bill_id:       { type: string }
+        resident_id:   { type: string }
+        billing_month: { type: string }
+        total_amount:  { type: number }
+        late_fee:      { type: number }
+        amount_paid:   { type: number }
+        outstanding:   { type: number }
+        due_date:      { type: string, format: date }
+        days_overdue:  { type: integer }
+        status:        { type: string, enum: [pending, paid, overdue, partially_paid] }
+
+    BillHistoryPage:
+      type: object
+      properties:
+        total:             { type: integer, description: "Bills matching the filters (not just this page)" }
+        total_outstanding: { type: number, description: "Outstanding across this page's bills, late fee included" }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/BillWithLateFee" }
+
+    # ── Receipt ──────────────────────────────────────────────────────────────
+
+    ReceiptSociety:
+      type: object
+      properties:
+        name:           { type: string, example: "Jains Kences Retreat" }
+        contact_number: { type: string, nullable: true }
+
+    ReceiptPayer:
+      type: object
+      properties:
+        resident_id: { type: string }
+        name:        { type: string, nullable: true }
+        flat_number: { type: string, nullable: true }
+
+    ReceiptBill:
+      type: object
+      properties:
+        bill_id:       { type: string }
+        billing_month: { type: string }
+        due_date:      { type: string, format: date }
+        total_amount:  { type: number }
+        late_fee:      { type: number }
+
+    Receipt:
+      type: object
+      properties:
+        receipt_no:            { type: string, example: "PAY-20240315-A1B2C3D4" }
+        issued_at:             { type: string, format: date-time }
+        society:               { $ref: "#/components/schemas/ReceiptSociety" }
+        payer:                 { $ref: "#/components/schemas/ReceiptPayer" }
+        bill:                  { $ref: "#/components/schemas/ReceiptBill" }
+        payment_id:            { type: string }
+        amount_paid:           { type: number }
+        payment_method:        { type: string, enum: [upi, online_transfer, cheque, cash] }
+        paid_on:               { type: string, format: date-time }
+        transaction_ref:       { type: string, nullable: true }
+        status:                { type: string, enum: [pending, paid, failed, cancelled, refunded] }
+        balance_after_payment: { type: number, description: "What was still owed on the bill immediately after this payment" }
+        gateway_message:       { type: string, nullable: true }
+        note:                  { type: string, example: "Computer-generated receipt. No signature required." }
+
+    # ── Payment history ──────────────────────────────────────────────────────
+
+    PaymentOut:
+      type: object
+      description: Reused from BE-11 — one payment row.
+      properties:
+        payment_id:      { type: string }
+        bill_id:         { type: string }
+        resident_id:     { type: string }
+        amount_paid:     { type: number }
+        payment_method:  { type: string, enum: [upi, online_transfer, cheque, cash] }
+        paid_on:         { type: string, format: date-time }
+        receipt_no:      { type: string, example: "PAY-20240315-A1B2C3D4" }
+        transaction_ref: { type: string, nullable: true }
+        status:          { type: string, enum: [pending, paid, failed, cancelled, refunded] }
+        gateway_message: { type: string, nullable: true }
+
+    PaymentHistoryFilters:
+      type: object
+      description: Echoed back on the response so a client can confirm what the server applied.
+      properties:
+        resident_id:    { type: string, nullable: true }
+        bill_id:        { type: string, nullable: true }
+        payment_method: { type: string, nullable: true, enum: [upi, online_transfer, cheque, cash] }
+        status:         { type: string, nullable: true, enum: [pending, paid, failed, cancelled, refunded] }
+        date_from:      { type: string, format: date, nullable: true }
+        date_to:        { type: string, format: date, nullable: true }
+        min_amount:     { type: number, nullable: true }
+        max_amount:     { type: number, nullable: true }
+        sort:           { type: string, enum: [paid_on_desc, paid_on_asc, amount_desc, amount_asc] }
+
+    PaymentHistoryPage:
+      type: object
+      properties:
+        total:        { type: integer, description: "Payments matching the filters (not just this page)" }
+        total_amount: { type: number, description: "Sum of amount_paid across all successful payments matching the filters" }
+        filters:      { $ref: "#/components/schemas/PaymentHistoryFilters" }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/PaymentOut" }
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail: { type: string }

@@ -1,0 +1,357 @@
+openapi: 3.0.3
+info:
+  title: Community Facilities Booking API — BE-32
+  description: >
+    Community Facilities booking API for the Jains Kences Retreat Apartment
+    Association Management System. Lists bookable amenities (gym, pool, court),
+    serves per-date slot availability, and creates/cancels a resident's booking
+    of a fixed hourly slot.
+
+    Slots: facilities operate on six fixed hourly bands — 06:00-07:00,
+    07:00-08:00, 08:00-09:00, 17:00-18:00, 18:00-19:00 and 19:00-20:00. A
+    booking names one band as its `slot`; any other value is rejected with 422.
+
+    Capacity: a facility's `capacity` caps how many *confirmed* bookings a
+    single slot accepts in parallel (a court is 1, the gym/pool a few). Once a
+    slot reaches capacity it is full and further bookings are rejected with 409.
+    A resident cannot hold two confirmed bookings for the same slot (also 409).
+    Both rules are enforced server-side.
+
+    Availability: `GET /facilities/{id}/availability?date=` returns every band
+    with its state — `available`, `booked` (at capacity) or `past` (already
+    elapsed today) — plus the confirmed count and spots remaining.
+
+    Cancellation: cancelling a confirmed booking frees its slot for re-booking.
+    Cancelling an already-cancelled booking returns 409.
+
+    Errors: 404 unknown facility/resident/booking, 409 slot full or duplicate or
+    already cancelled, 400 facility inactive, 422 invalid input.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Facilities
+    description: List facilities, serve slot availability, and book/cancel slots
+
+paths:
+
+  /facilities:
+    post:
+      tags: [Facilities]
+      summary: Create a bookable facility
+      description: >
+        Registers a shared amenity residents can reserve. `capacity` is how many
+        confirmed bookings a single slot accepts in parallel.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FacilityCreate" }
+            examples:
+              gym:
+                summary: Gymnasium (shared-capacity)
+                value:
+                  name: "Gymnasium"
+                  location: "Clubhouse · Ground Floor"
+                  capacity: 4
+                  description: "Cardio + strength equipment."
+              court:
+                summary: Sports court (one party per slot)
+                value:
+                  name: "Sports Court"
+                  location: "Block C · Open Area"
+                  capacity: 1
+      responses:
+        "201":
+          description: Facility created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FacilityOut" }
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+    get:
+      tags: [Facilities]
+      summary: List bookable facilities
+      description: Returns facilities alphabetically. Filter by status.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [active, inactive] }
+      responses:
+        "200":
+          description: List of facilities
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/FacilityOut" }
+        "422":
+          description: Invalid status filter value
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+  /facilities/{facility_id}:
+    get:
+      tags: [Facilities]
+      summary: Get a facility
+      parameters:
+        - name: facility_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The facility
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FacilityOut" }
+        "404":
+          description: Facility not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "Facility 'nope' not found."
+
+  /facilities/{facility_id}/availability:
+    get:
+      tags: [Facilities]
+      summary: Get slot availability for a facility on a date
+      description: >
+        Returns every fixed hourly band with its state (available / booked /
+        past), the number of confirmed bookings it holds and the spots
+        remaining. `date` defaults to today.
+      parameters:
+        - name: facility_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: date
+          in: query
+          required: false
+          schema: { type: string, format: date }
+          description: Date to check (defaults to today)
+      responses:
+        "200":
+          description: Slot availability grid
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FacilityAvailabilityOut" }
+        "404":
+          description: Facility not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+  /facilities/{facility_id}/bookings:
+    post:
+      tags: [Facilities]
+      summary: Book a facility slot
+      description: >
+        Reserves a slot for a resident. Rejected if the facility is inactive,
+        the resident already holds a confirmed booking for the slot, or the slot
+        is already full (confirmed bookings have reached capacity).
+      parameters:
+        - name: facility_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FacilityBookingCreate" }
+            examples:
+              booking:
+                summary: Book the 18:00-19:00 slot
+                value:
+                  resident_id: "8f1c2b91-0a63-4c4e-9a2f-5c1b7e0d3a11"
+                  booking_date: "2026-08-20"
+                  slot: "18:00 - 19:00"
+      responses:
+        "201":
+          description: Booking created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FacilityBookingOut" }
+        "400":
+          description: Facility inactive
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "Facility 'gym' is inactive and is not accepting bookings."
+        "404":
+          description: Facility or resident not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "409":
+          description: Slot full, or resident already booked this slot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              examples:
+                full:
+                  summary: Slot at capacity
+                  value:
+                    detail: "Slot 18:00 - 19:00 on 2026-08-20 is full for 'Sports Court' (capacity 1)."
+                duplicate:
+                  summary: Resident already booked this slot
+                  value:
+                    detail: "Resident '8f1c2b91' already has a confirmed booking for 18:00 - 19:00 on 2026-08-20."
+        "422":
+          description: Validation error — unknown slot or past booking_date
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+    get:
+      tags: [Facilities]
+      summary: List bookings for a facility
+      description: >
+        Returns bookings for a facility, soonest-first. Filter by resident, date
+        or status (e.g. status=confirmed for a resident's active bookings).
+      parameters:
+        - name: facility_id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: resident_id
+          in: query
+          required: false
+          schema: { type: string }
+        - name: date
+          in: query
+          required: false
+          schema: { type: string, format: date }
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [confirmed, cancelled] }
+      responses:
+        "200":
+          description: List of bookings
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/FacilityBookingOut" }
+        "404":
+          description: Facility not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+  /facilities/bookings/{booking_id}/cancel:
+    post:
+      tags: [Facilities]
+      summary: Cancel a facility booking
+      description: Cancels a confirmed booking, freeing its slot for re-booking.
+      parameters:
+        - name: booking_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Booking cancelled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FacilityBookingOut" }
+        "404":
+          description: Booking not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "409":
+          description: Booking is already cancelled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "Facility booking '3d7a1f22' is already cancelled."
+
+components:
+  schemas:
+
+    FacilityCreate:
+      type: object
+      required: [name]
+      properties:
+        name:        { type: string, minLength: 1, maxLength: 100 }
+        location:    { type: string, maxLength: 100, nullable: true }
+        capacity:    { type: integer, minimum: 1, default: 1, description: "Confirmed bookings a single slot accepts in parallel" }
+        description: { type: string, nullable: true }
+        status:      { type: string, enum: [active, inactive], default: active }
+
+    FacilityOut:
+      type: object
+      properties:
+        facility_id: { type: string }
+        name:        { type: string }
+        location:    { type: string, nullable: true }
+        capacity:    { type: integer }
+        description: { type: string, nullable: true }
+        status:      { type: string, enum: [active, inactive] }
+        created_at:  { type: string, format: date-time }
+        updated_at:  { type: string, format: date-time }
+
+    FacilityBookingCreate:
+      type: object
+      required: [resident_id, booking_date, slot]
+      properties:
+        resident_id:  { type: string }
+        booking_date: { type: string, format: date, description: "Today or later" }
+        slot:
+          type: string
+          description: "One of the fixed hourly bands"
+          enum:
+            - "06:00 - 07:00"
+            - "07:00 - 08:00"
+            - "08:00 - 09:00"
+            - "17:00 - 18:00"
+            - "18:00 - 19:00"
+            - "19:00 - 20:00"
+
+    FacilityBookingOut:
+      type: object
+      properties:
+        booking_id:   { type: string }
+        facility_id:  { type: string }
+        resident_id:  { type: string }
+        booking_date: { type: string, format: date }
+        slot:         { type: string }
+        status:       { type: string, enum: [confirmed, cancelled] }
+        created_at:   { type: string, format: date-time }
+        updated_at:   { type: string, format: date-time }
+
+    SlotAvailability:
+      type: object
+      properties:
+        slot:            { type: string, description: "Hourly band label" }
+        state:           { type: string, enum: [available, booked, past] }
+        booked:          { type: integer, description: "Confirmed bookings held for this slot" }
+        spots_remaining: { type: integer, description: "capacity - booked (never negative)" }
+
+    FacilityAvailabilityOut:
+      type: object
+      properties:
+        facility_id:  { type: string }
+        booking_date: { type: string, format: date }
+        capacity:     { type: integer }
+        slots:
+          type: array
+          items: { $ref: "#/components/schemas/SlotAvailability" }
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail: { type: string }

@@ -1,0 +1,146 @@
+openapi: 3.0.3
+info:
+  title: Complaint Submission API - BE-01
+  description: |
+    API for submitting a resident complaint. Submitting a complaint persists
+    the record and returns a unique complaint ID.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8000/api/v1
+tags:
+  - name: Complaints
+    description: Resident complaint operations
+paths:
+  /complaints:
+    post:
+      tags:
+        - Complaints
+      summary: Submit a complaint
+      description: |
+        Persists a resident complaint with a generated UUID and initial `submitted` status.
+        Category must be one of the fixed BE-13 values.
+
+        A photo is optional and can be supplied two ways:
+          - `image_reference` — a URL or storage key for an already-hosted image.
+          - `image` — an inline base64 upload (EN-01). The submission validates
+            it *before* storing anything: the real type is decided by sniffing
+            the bytes (a forged `content_type` does not get through), only
+            `image/jpeg`, `image/png` and `image/webp` are accepted, and the
+            image must be no larger than 5 MB. A valid inline image is stored and
+            its reference becomes the complaint's `image_reference`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ComplaintCreate'
+      responses:
+        '201':
+          description: Complaint submitted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplaintOut'
+        '400':
+          description: Invalid complaint payload, category, or malformed image data
+        '413':
+          description: Attached image exceeds the 5 MB size limit
+        '415':
+          description: Attached image is not an allowed type (jpeg, png, webp)
+        '422':
+          description: Validation Error
+components:
+  schemas:
+    ComplaintCategory:
+      type: string
+      enum:
+        - Plumbing
+        - Electrical
+        - Security
+        - Water Supply
+        - Lift Maintenance
+    ComplaintCreate:
+      type: object
+      additionalProperties: false
+      required: [category, description, location]
+      properties:
+        category:
+          $ref: '#/components/schemas/ComplaintCategory'
+        description:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        location:
+          type: string
+          minLength: 1
+          maxLength: 100
+        image_reference:
+          type: string
+          maxLength: 500
+          nullable: true
+          description: Optional URL, storage object key, or file reference.
+        image:
+          $ref: '#/components/schemas/ComplaintImageUpload'
+        raised_by:
+          type: string
+          maxLength: 100
+          nullable: true
+    ComplaintImageUpload:
+      type: object
+      additionalProperties: false
+      nullable: true
+      required: [data]
+      description: |
+        Inline image attached to a complaint (EN-01). Validated for type and
+        size at submission; `content_type` is only a hint and is verified
+        against the actual bytes.
+      properties:
+        data:
+          type: string
+          minLength: 1
+          description: Base64-encoded image bytes, or a base64 `data:` URI.
+        content_type:
+          type: string
+          maxLength: 100
+          nullable: true
+          description: Declared MIME type, e.g. `image/jpeg`. Must match the bytes.
+        filename:
+          type: string
+          maxLength: 255
+          nullable: true
+          description: Original filename, for display only. Never used as a storage path.
+    ComplaintOut:
+      type: object
+      required: [complaint_id, category, description, status, created_at, updated_at]
+      properties:
+        complaint_id:
+          type: string
+        category:
+          type: string
+        description:
+          type: string
+        location:
+          type: string
+          nullable: true
+        image_reference:
+          type: string
+          nullable: true
+        raised_by:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [submitted, assigned, in_progress, resolved, closed]
+        assigned_to:
+          type: string
+          nullable: true
+        assigned_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time

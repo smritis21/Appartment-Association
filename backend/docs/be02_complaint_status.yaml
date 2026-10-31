@@ -1,0 +1,122 @@
+openapi: 3.0.3
+info:
+  title: Complaint Status API - BE-02
+  description: |
+    API for reading and updating complaint stage/status. Allows tracking the stages of a complaint.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8000/api/v1
+tags:
+  - name: Complaints
+    description: Resident complaint operations
+paths:
+  /complaints/{complaint_id}/status:
+    get:
+      tags:
+        - Complaints
+      summary: Get complaint status
+      description: Returns the complaint's current stage and status timestamp.
+      parameters:
+        - name: complaint_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: UUID of the complaint
+      responses:
+        '200':
+          description: Current complaint status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplaintStatusOut'
+        '404':
+          description: Complaint not found
+    put:
+      tags:
+        - Complaints
+      summary: Update complaint status
+      description: |
+        Moves the complaint through the shared status workflow and records a
+        status update with a timestamped history entry.
+
+        Status flow: `submitted -> assigned -> in_progress -> resolved -> closed`.
+        A `resolved` complaint can be reopened back to `in_progress`. `closed`
+        is terminal — it cannot be reopened; a new complaint must be filed
+        instead. Any move outside this flow (skipping stages, going backward,
+        repeating the current status, or leaving a terminal state) is rejected
+        with 400 and a message that names the valid next states.
+      parameters:
+        - name: complaint_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: UUID of the complaint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ComplaintStatusUpdate'
+      responses:
+        '200':
+          description: Complaint status updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplaintStatusOut'
+        '400':
+          description: Unknown status, or an illegal stage transition
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              examples:
+                illegal_transition:
+                  summary: Skipping stages
+                  value:
+                    detail: "Cannot transition complaint from 'submitted' to 'resolved': the only valid next states from 'submitted' are: assigned, in_progress."
+                closed_is_terminal:
+                  summary: Reopening a closed complaint
+                  value:
+                    detail: "Cannot transition complaint from 'closed' to 'in_progress': 'closed' is a terminal state and cannot be reopened. File a new complaint instead."
+                same_status:
+                  summary: Repeating the current status
+                  value:
+                    detail: "Cannot transition complaint from 'assigned' to 'assigned': it is already 'assigned'."
+        '404':
+          description: Complaint not found
+        '422':
+          description: Validation Error
+components:
+  schemas:
+    ErrorDetail:
+      type: object
+      properties:
+        detail:
+          type: string
+    ComplaintStatusUpdate:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [submitted, assigned, in_progress, resolved, closed]
+        notes:
+          type: string
+          maxLength: 500
+          nullable: true
+    ComplaintStatusOut:
+      type: object
+      required: [complaint_id, status, timestamp]
+      properties:
+        complaint_id:
+          type: string
+        status:
+          type: string
+          enum: [submitted, assigned, in_progress, resolved, closed]
+        timestamp:
+          type: string
+          format: date-time

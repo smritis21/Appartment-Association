@@ -1,0 +1,361 @@
+openapi: 3.0.3
+info:
+  title: Notification Center API — BE-37
+  description: |
+    Notification Center API for Jains Kences Retreat Apartment Association Management System.
+
+    Aggregates notifications from all source modules (complaints, payments, visitors,
+    maintenance, announcements, alerts) into a single filterable inbox per resident.
+
+    ## Key Features
+    - **Filtered listing** with unread count in the response envelope
+    - **PATCH mark-as-read** — single, multiple, or all at once
+    - **Event-triggered generation** — other modules call `POST /notifications/generate`
+      when a source event occurs (complaint resolved, payment due, visitor approved, etc.)
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Notifications
+    description: Notification Center — retrieval, filtering, mark-as-read, and generation
+
+paths:
+
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: List notifications for a resident
+      description: |
+        Returns a paginated list of a resident's notifications across all modules,
+        together with the global unread count (computed before filters, so the badge
+        count is always accurate).
+
+        Supports independent filters on `notification_type`, `source_module`,
+        `is_read`, and `priority`.
+      parameters:
+        - name: resident_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+          description: UUID of the resident whose notifications to fetch
+        - name: notification_type
+          in: query
+          schema:
+            type: string
+            enum:
+              - general
+              - complaint_status_change
+              - payment_due
+              - visitor_approval
+              - maintenance_update
+              - announcement
+              - emergency_alert
+          description: Filter by notification type
+        - name: source_module
+          in: query
+          schema:
+            type: string
+            enum: [general, complaints, payments, visitors, maintenance, announcements, alerts, facilities, events, temple]
+          description: Filter by originating module
+        - name: is_read
+          in: query
+          schema: { type: boolean }
+          description: "true = read only, false = unread only"
+        - name: priority
+          in: query
+          schema:
+            type: string
+            enum: [low, normal, high]
+          description: Filter by priority
+        - name: skip
+          in: query
+          schema: { type: integer, default: 0, minimum: 0 }
+          description: Records to skip (pagination)
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+          description: Maximum records to return
+      responses:
+        "200":
+          description: Paginated notifications with unread count
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationListResponse" }
+        "404":
+          description: Resident not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+  /notifications/generate:
+    post:
+      tags: [Notifications]
+      summary: Generate a notification from a source event
+      description: |
+        Creates a notification that was triggered by a source module event.
+
+        Call this endpoint whenever a meaningful event occurs that a resident
+        should be notified about:
+        - Complaint status changed
+        - Payment bill generated / overdue
+        - Visitor request approved or rejected
+        - Maintenance visit scheduled
+        - Emergency alert issued
+
+        This endpoint can also be called internally by other service modules.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NotificationGenerateRequest" }
+            example:
+              resident_id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+              title: "Complaint Resolved"
+              message: "Your complaint #456 has been resolved by the maintenance team."
+              notification_type: "complaint_status_change"
+              source_module: "complaints"
+              source_event_id: "7abc1234-0000-4abc-b000-aabbccddeeff"
+              priority: "normal"
+      responses:
+        "201":
+          description: Notification generated successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationOut" }
+        "404":
+          description: Resident not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "422":
+          description: Validation error
+
+  /notifications/:
+    post:
+      tags: [Notifications]
+      summary: Create a notification (legacy)
+      description: |
+        Direct notification creation. Retained for backwards compatibility with BE-03.
+        Prefer `POST /notifications/generate` for event-triggered notifications.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NotificationCreate" }
+      responses:
+        "201":
+          description: Notification created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationOut" }
+        "404":
+          description: Resident not found
+        "422":
+          description: Validation error
+
+  /notifications/{notification_id}:
+    get:
+      tags: [Notifications]
+      summary: Get a single notification
+      description: Returns full detail of one notification. Requires `resident_id` for ownership verification.
+      parameters:
+        - name: notification_id
+          in: path
+          required: true
+          schema: { type: string }
+          description: UUID of the notification
+        - name: resident_id
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+          description: Owner resident UUID — used to verify ownership
+      responses:
+        "200":
+          description: Notification detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationOut" }
+        "403":
+          description: Notification does not belong to this resident
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "404":
+          description: Notification not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+  /notifications/{resident_id}:
+    delete:
+      tags: [Notifications]
+      summary: Clear all notifications for a resident
+      description: >-
+        Removes every notification belonging to the resident and reports how
+        many were deleted. Backs the notification centre's clear-all action.
+        Clearing an empty list is a success with `deleted: 0`.
+      parameters:
+        - name: resident_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Notifications cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted: { type: integer, example: 4 }
+        "404":
+          description: Resident not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+  /notifications/{resident_id}/mark-read:
+    patch:
+      tags: [Notifications]
+      summary: Mark notifications as read
+      description: |
+        Mark one, many, or all notifications as read for a resident.
+
+        - Provide `notification_ids` array to mark **specific** notifications.
+        - Omit `notification_ids` (send `{}` or `{"notification_ids": null}`) to mark
+          **all** unread notifications as read.
+
+        Sets `is_read = true` and records the `read_at` timestamp.
+      parameters:
+        - name: resident_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+          description: UUID of the resident
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MarkReadRequest" }
+            examples:
+              markAll:
+                summary: Mark all as read
+                value: {}
+              markSelected:
+                summary: Mark specific notifications
+                value:
+                  notification_ids:
+                    - "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                    - "7abc1234-0000-4abc-b000-aabbccddeeff"
+      responses:
+        "200":
+          description: Notifications marked as read
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:        { type: string, example: "Marked 3 notification(s) as read (all)." }
+                  updated_count: { type: integer, example: 3 }
+        "403":
+          description: Notification does not belong to this resident
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "404":
+          description: Resident not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+components:
+  schemas:
+
+    NotificationType:
+      type: string
+      enum:
+        - general
+        - complaint_status_change
+        - payment_due
+        - visitor_approval
+        - maintenance_update
+        - announcement
+        - emergency_alert
+        - booking_confirmed
+
+    SourceModule:
+      type: string
+      enum: [general, complaints, payments, visitors, maintenance, announcements, alerts, facilities, events, temple]
+
+    Priority:
+      type: string
+      enum: [low, normal, high]
+
+    NotificationCreate:
+      type: object
+      required: [resident_id, title, message]
+      properties:
+        resident_id:       { type: string, format: uuid }
+        title:             { type: string, minLength: 1, maxLength: 100 }
+        message:           { type: string, minLength: 1, maxLength: 500 }
+        notification_type: { $ref: "#/components/schemas/NotificationType" }
+        source_module:     { $ref: "#/components/schemas/SourceModule" }
+        source_event_id:   { type: string, nullable: true }
+        priority:          { $ref: "#/components/schemas/Priority" }
+
+    NotificationGenerateRequest:
+      allOf:
+        - $ref: "#/components/schemas/NotificationCreate"
+
+    NotificationSummary:
+      type: object
+      description: Lightweight notification item used in list responses
+      properties:
+        notification_id:   { type: string, format: uuid }
+        resident_id:       { type: string, format: uuid }
+        title:             { type: string }
+        notification_type: { $ref: "#/components/schemas/NotificationType" }
+        source_module:     { $ref: "#/components/schemas/SourceModule" }
+        priority:          { $ref: "#/components/schemas/Priority" }
+        is_read:           { type: boolean }
+        created_at:        { type: string, format: date-time }
+
+    NotificationOut:
+      allOf:
+        - $ref: "#/components/schemas/NotificationSummary"
+        - type: object
+          properties:
+            message:         { type: string }
+            source_event_id: { type: string, nullable: true }
+            read_at:         { type: string, format: date-time, nullable: true }
+
+    NotificationListResponse:
+      type: object
+      description: Paginated list envelope with unread count
+      properties:
+        total:
+          type: integer
+          description: Total notifications matching the applied filters
+        unread_count:
+          type: integer
+          description: Global unread count for this resident (ignores filters — for badge display)
+        notifications:
+          type: array
+          items: { $ref: "#/components/schemas/NotificationSummary" }
+
+    MarkReadRequest:
+      type: object
+      properties:
+        notification_ids:
+          type: array
+          nullable: true
+          description: "IDs to mark as read. Null or absent = mark ALL unread."
+          items: { type: string, format: uuid }
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail: { type: string }

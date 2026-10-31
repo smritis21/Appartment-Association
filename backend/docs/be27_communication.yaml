@@ -1,0 +1,422 @@
+openapi: 3.0.3
+info:
+  title: Communication API — BE-27
+  description: >
+    Communication API for the Jains Kences Retreat Apartment Association
+    Management System.
+
+    **Circulars / Notices** — Admin publishes circulars with an optional
+    meeting date and up to 5 attachment file-path strings. meeting_date (when
+    supplied) must be today or a future date.
+
+    **Polls / Surveys** — Admin creates polls with a question, a list of at
+    least 2 options, and an open/close time window. Each resident may cast one
+    vote while the poll is open. Tallies are live-computed on every read.
+
+    Errors summary:
+    - 400 — attachment limit exceeded, past meeting_date, poll not open, invalid option
+    - 404 — circular / poll / resident not found
+    - 409 — resident has already voted on this poll
+    - 422 — schema validation failure
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Communication
+    description: Circulars/notices and polls/surveys with vote tallying
+
+paths:
+
+  # ── Circulars ────────────────────────────────────────────────────────────────
+
+  /communication/circulars:
+    post:
+      tags: [Communication]
+      summary: Create a circular / notice
+      description: >
+        Admin endpoint to publish a new circular or notice.
+        Attachment paths are limited to 5 per circular.
+        If meeting_date is provided it must be today or a future date.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CircularCreate" }
+            examples:
+              meeting_circular:
+                summary: AGM meeting circular
+                value:
+                  title: "AGM Notice — Q3 2026"
+                  body: "All residents are invited to the Annual General Meeting."
+                  category: "meeting"
+                  meeting_date: "2026-09-15"
+                  attachments: ["/uploads/agm_agenda.pdf"]
+                  created_by: "admin"
+              general_circular:
+                summary: General maintenance notice
+                value:
+                  title: "Water Supply Interruption"
+                  body: "Water supply will be interrupted on 10-Aug from 9 AM to 1 PM."
+                  category: "notice"
+                  created_by: "admin"
+      responses:
+        "201":
+          description: Circular created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CircularOut" }
+        "400":
+          description: Too many attachments or past meeting_date
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              examples:
+                too_many_attachments:
+                  summary: Attachment limit exceeded
+                  value:
+                    detail: "A circular may have at most 5 attachments (6 provided)."
+                past_meeting_date:
+                  summary: Past meeting date
+                  value:
+                    detail: "meeting_date '2020-01-01' is in the past. It must be today or a future date."
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+    get:
+      tags: [Communication]
+      summary: List circulars / notices
+      description: Returns all circulars, newest first. Optionally filter by category.
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [general, meeting, notice, urgent]
+          description: Filter by category
+      responses:
+        "200":
+          description: List of circulars
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/CircularOut" }
+        "422":
+          description: Invalid category filter
+
+  /communication/circulars/{circular_id}:
+    get:
+      tags: [Communication]
+      summary: Get a circular
+      parameters:
+        - name: circular_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The circular
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CircularOut" }
+        "404":
+          description: Circular not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "Circular 'abc123' not found."
+
+  # ── Polls ─────────────────────────────────────────────────────────────────────
+
+  /communication/polls:
+    post:
+      tags: [Communication]
+      summary: Create a poll / survey
+      description: >
+        Admin endpoint. Requires at least 2 options and a valid open/close
+        window (close_at must be strictly after open_at).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PollCreate" }
+            example:
+              question: "Which day works best for the community picnic?"
+              options: ["Saturday", "Sunday", "Either day"]
+              open_at: "2026-08-10T09:00:00"
+              close_at: "2026-08-12T18:00:00"
+              created_by: "admin"
+      responses:
+        "201":
+          description: Poll created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PollOut" }
+        "422":
+          description: Validation error (< 2 options, close_at ≤ open_at, etc.)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+    get:
+      tags: [Communication]
+      summary: List polls / surveys
+      description: Returns all polls, newest first, each with a live vote tally.
+      responses:
+        "200":
+          description: List of polls
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PollOut" }
+
+  /communication/polls/{poll_id}:
+    get:
+      tags: [Communication]
+      summary: Get a poll with live tally
+      parameters:
+        - name: poll_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Poll with live tally
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PollOut" }
+        "404":
+          description: Poll not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+  /communication/polls/{poll_id}/vote:
+    post:
+      tags: [Communication]
+      summary: Cast a vote on a poll
+      description: >
+        Record a resident's vote. Each resident may vote only once per poll.
+        Voting is rejected if the poll has not opened yet, has already closed,
+        if the chosen_option is not one of the declared options, or if the
+        resident has already voted.
+      parameters:
+        - name: poll_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PollResponseCreate" }
+            example:
+              resident_id: "8f1c2b91-0a63-4c4e-9a2f-5c1b7e0d3a11"
+              chosen_option: "Saturday"
+      responses:
+        "201":
+          description: Vote recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PollResponseOut" }
+        "400":
+          description: Poll not open or invalid option
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              examples:
+                not_open_yet:
+                  summary: Poll not yet open
+                  value:
+                    detail: "Poll 'abc123' has not opened yet. Voting opens at 2026-08-10T09:00:00."
+                closed:
+                  summary: Poll closed
+                  value:
+                    detail: "Poll 'abc123' is closed. Voting closed at 2026-08-12T18:00:00."
+                invalid_option:
+                  summary: Invalid option
+                  value:
+                    detail: "'Monday' is not a valid option for this poll. Valid options: ['Saturday', 'Sunday', 'Either day']."
+        "404":
+          description: Poll or resident not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "409":
+          description: Resident has already voted on this poll
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "Resident '8f1c2b91-0a63-4c4e-9a2f-5c1b7e0d3a11' has already voted on poll 'abc123'."
+        "422":
+          description: Validation error
+
+  /communication/polls/{poll_id}/results:
+    get:
+      tags: [Communication]
+      summary: Get poll results
+      description: >
+        Returns the complete tally for a poll: all options, vote counts, total
+        votes cast, and the current winner (option with most votes). Available
+        at any time — not restricted to closed polls.
+      parameters:
+        - name: poll_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Full poll results
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PollResultsOut" }
+        "404":
+          description: Poll not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+components:
+  schemas:
+
+    CircularCreate:
+      type: object
+      required: [title, body]
+      properties:
+        title:
+          type: string
+          maxLength: 200
+          description: Title of the circular
+        body:
+          type: string
+          description: Full text / HTML body of the circular
+        category:
+          type: string
+          enum: [general, meeting, notice, urgent]
+          default: general
+        meeting_date:
+          type: string
+          format: date
+          nullable: true
+          description: >
+            Date of the meeting (ISO-8601 YYYY-MM-DD). Must be today or future.
+            Only meaningful when category is 'meeting'.
+        attachments:
+          type: array
+          items: { type: string }
+          maxItems: 5
+          description: File-path strings (max 5)
+          default: []
+        created_by:
+          type: string
+          nullable: true
+          maxLength: 100
+
+    CircularOut:
+      type: object
+      properties:
+        circular_id:  { type: string }
+        title:        { type: string }
+        body:         { type: string }
+        category:     { type: string, enum: [general, meeting, notice, urgent] }
+        meeting_date: { type: string, format: date, nullable: true }
+        attachments:  { type: array, items: { type: string } }
+        created_by:   { type: string, nullable: true }
+        created_at:   { type: string, format: date-time }
+        updated_at:   { type: string, format: date-time }
+
+    PollCreate:
+      type: object
+      required: [question, options, open_at, close_at]
+      properties:
+        question:
+          type: string
+          maxLength: 500
+          description: The poll question
+        options:
+          type: array
+          items: { type: string }
+          minItems: 2
+          description: At least two option strings
+        open_at:
+          type: string
+          format: date-time
+          description: UTC datetime when voting opens
+        close_at:
+          type: string
+          format: date-time
+          description: UTC datetime when voting closes (must be after open_at)
+        created_by:
+          type: string
+          nullable: true
+          maxLength: 100
+
+    PollOut:
+      type: object
+      properties:
+        poll_id:     { type: string }
+        question:    { type: string }
+        options:     { type: array, items: { type: string } }
+        open_at:     { type: string, format: date-time }
+        close_at:    { type: string, format: date-time }
+        created_by:  { type: string, nullable: true }
+        created_at:  { type: string, format: date-time }
+        tally:
+          type: object
+          additionalProperties: { type: integer }
+          description: "Map of option string → vote count"
+        total_votes: { type: integer }
+        is_open:     { type: boolean, description: "True when now is within open/close window" }
+
+    PollResponseCreate:
+      type: object
+      required: [resident_id, chosen_option]
+      properties:
+        resident_id:
+          type: string
+          description: ID of the resident casting the vote
+        chosen_option:
+          type: string
+          maxLength: 200
+          description: Must be one of the poll's declared options
+
+    PollResponseOut:
+      type: object
+      properties:
+        response_id:   { type: string }
+        poll_id:       { type: string }
+        resident_id:   { type: string }
+        chosen_option: { type: string }
+        responded_at:  { type: string, format: date-time }
+
+    PollResultsOut:
+      type: object
+      properties:
+        poll_id:     { type: string }
+        question:    { type: string }
+        options:     { type: array, items: { type: string } }
+        open_at:     { type: string, format: date-time }
+        close_at:    { type: string, format: date-time }
+        tally:
+          type: object
+          additionalProperties: { type: integer }
+        total_votes: { type: integer }
+        winner:
+          type: string
+          nullable: true
+          description: Option with the most votes; null when no votes cast
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail: { type: string }

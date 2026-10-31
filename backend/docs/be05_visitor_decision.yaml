@@ -1,0 +1,238 @@
+openapi: 3.0.3
+info:
+  title: Visitor Decision API — BE-05
+  description: >
+    Visitor Decision API for the Jains Kences Retreat Apartment Association
+    Management System. Lets a resident approve or reject a visitor request
+    raised at the gate for their flat, recording the decision together with a
+    UTC timestamp.
+
+    Decision flow: a request is created as `pending` (BE-04) and the resident
+    moves it to `approved`, `rejected`, or — for deliveries only —
+    `left_at_gate`. A decision is final: the request is terminal once decided,
+    so a second decision on the same request is rejected as a duplicate (409).
+
+    Errors: 404 unknown request, 409 duplicate decision, 400 expired request
+    or `left_at_gate` used on a non-delivery, 422 invalid decision value.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Visitors
+    description: Record and read resident decisions on gate visitor requests
+
+paths:
+
+  /visitors:
+    get:
+      tags: [Visitors]
+      summary: List visitor requests
+      description: >
+        Returns visitor requests newest-first. Pass `resident_id` to scope the
+        list to a single resident's flat — this is what the resident-facing
+        approval queue in the frontend uses to load its tabs.
+      parameters:
+        - name: resident_id
+          in: query
+          required: false
+          schema: { type: string }
+          description: Only return requests raised for this resident
+      responses:
+        "200":
+          description: List of visitor requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/VisitorOut" }
+
+  /visitors/{visitor_id}:
+    get:
+      tags: [Visitors]
+      summary: Get a visitor request
+      parameters:
+        - name: visitor_id
+          in: path
+          required: true
+          schema: { type: string }
+          description: UUID of the visitor request
+      responses:
+        "200":
+          description: The visitor request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VisitorOut" }
+        "404":
+          description: Visitor request not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "Visitor request 'nope' not found."
+
+  /visitors/{visitor_id}/decision:
+    post:
+      tags: [Visitors]
+      summary: Record a resident's decision on a visitor request
+      description: >
+        Records an `approved`, `rejected` or `left_at_gate` decision against a
+        pending visitor request, stamped with a UTC timestamp (`decided_at`).
+
+        A decision is final — posting a second decision to the same request
+        returns 409 and leaves the original decision untouched.
+
+        `left_at_gate` is only accepted when the request's purpose is a
+        delivery. For that decision the response also carries the guard who
+        took the parcel (`collected_by`) and where the resident can collect it
+        (`pickup_location`), derived from the gate the request came in through.
+      parameters:
+        - name: visitor_id
+          in: path
+          required: true
+          schema: { type: string }
+          description: UUID of the visitor request being decided
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VisitorDecisionRequest" }
+            examples:
+              approve:
+                summary: Approve a guest
+                value:
+                  decision: "approved"
+                  decided_by: "8f1c2b91-0a63-4c4e-9a2f-5c1b7e0d3a11"
+                  notes: "Expected guest, send them up"
+              reject:
+                summary: Reject an unknown visitor
+                value:
+                  decision: "rejected"
+                  decided_by: "8f1c2b91-0a63-4c4e-9a2f-5c1b7e0d3a11"
+                  notes: "Not expecting anyone"
+              left_at_gate:
+                summary: Leave a delivery at the gate
+                value:
+                  decision: "left_at_gate"
+                  decided_by: "8f1c2b91-0a63-4c4e-9a2f-5c1b7e0d3a11"
+      responses:
+        "200":
+          description: Decision recorded successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VisitorOut" }
+              example:
+                visitor_id: "3d7a1f22-9c40-4b8e-b0a6-1e2f4c5d6a7b"
+                resident_id: "8f1c2b91-0a63-4c4e-9a2f-5c1b7e0d3a11"
+                visitor_name: "Rahul Khanna"
+                purpose: "Guest Visit"
+                phone: "9811122233"
+                flat_number: "A-101"
+                gate: "Main Gate"
+                vehicle: null
+                status: "approved"
+                pass_code: null
+                valid_from: null
+                valid_until: null
+                decision: "approved"
+                decided_by: "8f1c2b91-0a63-4c4e-9a2f-5c1b7e0d3a11"
+                decided_at: "2026-08-01T10:26:41.512380Z"
+                decision_notes: "Expected guest, send them up"
+                collected_by: null
+                pickup_location: null
+                requested_at: "2026-08-01T10:25:00"
+                created_at: "2026-08-01T10:25:00"
+                updated_at: "2026-08-01T10:26:41"
+        "400":
+          description: Request has expired, or left_at_gate used on a non-delivery
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              examples:
+                expired:
+                  summary: Visit window already closed
+                  value:
+                    detail: "Visitor request '3d7a1f22' expired at 2026-07-31T18:00:00 and can no longer be decided."
+                left_at_gate_not_allowed:
+                  summary: left_at_gate on a non-delivery
+                  value:
+                    detail: "'left_at_gate' is only valid for delivery requests. This request's purpose is 'Guest Visit'."
+        "404":
+          description: Visitor request not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "Visitor request 'nope' not found."
+        "409":
+          description: A decision has already been recorded for this request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "Visitor request '3d7a1f22' has already been decided ('approved'). A decision cannot be changed."
+        "422":
+          description: Validation error — decision missing or not one of the allowed values
+
+components:
+  schemas:
+
+    VisitorDecisionRequest:
+      type: object
+      required: [decision]
+      properties:
+        decision:
+          type: string
+          enum: [approved, rejected, left_at_gate]
+          description: >
+            The resident's decision. `left_at_gate` is only valid for delivery
+            requests. `pending` and `expired` are system states and are not
+            accepted here.
+        decided_by:
+          type: string
+          nullable: true
+          description: resident_id of the resident recording the decision
+        notes:
+          type: string
+          maxLength: 500
+          nullable: true
+          description: Optional note attached to the decision
+
+    VisitorOut:
+      type: object
+      properties:
+        visitor_id:   { type: string }
+        resident_id:  { type: string, nullable: true }
+        visitor_name: { type: string }
+        purpose:      { type: string, nullable: true, description: "e.g. Guest Visit, Delivery, Cab / Taxi, Home Service, Relative" }
+        phone:        { type: string, nullable: true }
+        flat_number:  { type: string, nullable: true }
+        gate:         { type: string, nullable: true }
+        vehicle:      { type: string, nullable: true }
+        status:
+          type: string
+          enum: [pending, approved, rejected, left_at_gate, expired]
+          description: Current state of the request
+        pass_code:    { type: string, nullable: true }
+        valid_from:   { type: string, format: date-time, nullable: true }
+        valid_until:  { type: string, format: date-time, nullable: true }
+        decision:
+          type: string
+          enum: [approved, rejected, left_at_gate]
+          nullable: true
+          description: What the resident chose. Null while the request is pending.
+        decided_by:     { type: string, nullable: true, description: "resident_id of the decider" }
+        decided_at:     { type: string, format: date-time, nullable: true, description: "UTC timestamp the decision was recorded" }
+        decision_notes: { type: string, nullable: true }
+        collected_by:    { type: string, nullable: true, description: "Guard who took the parcel — set only for left_at_gate" }
+        pickup_location: { type: string, nullable: true, description: "Where to collect the parcel — set only for left_at_gate" }
+        requested_at: { type: string, format: date-time }
+        created_at:   { type: string, format: date-time }
+        updated_at:   { type: string, format: date-time }
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail: { type: string }

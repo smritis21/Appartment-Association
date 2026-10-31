@@ -1,0 +1,292 @@
+openapi: 3.1.0
+info:
+  title: Settings & Configuration API — BE-40
+  description: User preferences and apartment-wide configuration. Preferences are scoped to the authenticated
+    caller — user_id always comes from the bearer token, never the request body. Configuration is readable
+    by any authenticated user but writable only by admins, and each configuration key validates its own
+    value.
+  version: 1.0.0
+servers:
+- url: http://localhost:8000/api/v1
+  description: Local development server
+tags:
+- name: Settings
+  description: Per-user preferences and role-gated apartment configuration
+paths:
+  /settings/preferences:
+    get:
+      tags:
+      - Settings
+      summary: Get my preferences
+      operationId: get_preferences_api_v1_settings_preferences_get
+      x-backlog-id: BE-40
+      x-user-story: As a user/admin, I want endpoints so that preferences and system config persist.
+      description: Returns the authenticated user's notification, language and theme preferences. A default
+        row is created automatically on first read.
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreferenceOut'
+    put:
+      tags:
+      - Settings
+      summary: Update my preferences
+      operationId: update_preferences_api_v1_settings_preferences_put
+      x-backlog-id: BE-40
+      x-user-story: As a user/admin, I want endpoints so that preferences and system config persist.
+      description: Updates the authenticated user's preferences. Only the fields supplied are changed.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreferenceUpdate'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreferenceOut'
+        '422':
+          description: Validation error — value not one of the allowed options
+  /settings/config:
+    get:
+      tags:
+      - Settings
+      summary: List apartment configuration
+      operationId: list_config_api_v1_settings_config_get
+      x-backlog-id: BE-40
+      x-user-story: As a user/admin, I want endpoints so that preferences and system config persist.
+      description: Returns every apartment configuration value that has been set, ordered by key.
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ConfigOut'
+                type: array
+                title: Response List Config Api V1 Settings Config Get
+  /settings/config/{key}:
+    get:
+      tags:
+      - Settings
+      summary: Get an apartment configuration value
+      operationId: get_config_api_v1_settings_config__key__get
+      x-backlog-id: BE-40
+      x-user-story: As a user/admin, I want endpoints so that preferences and system config persist.
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigOut'
+        '404':
+          description: This config key has not been set
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - Settings
+      summary: Set an apartment configuration value (admin only)
+      operationId: update_config_api_v1_settings_config__key__put
+      x-backlog-id: BE-40
+      x-user-story: As a user/admin, I want endpoints so that preferences and system config persist.
+      description: Sets or updates a single apartment configuration value. `key` must be one of the recognised
+        configuration keys (gst_rate, visitor_pass_default_hours, maintenance_due_day, society_name, emergency_contact_number)
+        and `value` must pass that key's own validation rule.
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigUpdate'
+      responses:
+        '200':
+          description: Config value set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigOut'
+        '400':
+          description: Unrecognised key, or value fails validation for this key
+        '401':
+          description: No valid Bearer token
+        '403':
+          description: Authenticated but not an admin
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    ConfigOut:
+      properties:
+        key:
+          type: string
+          title: Key
+        value:
+          type: string
+          title: Value
+        updated_by:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Updated By
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+      type: object
+      required:
+      - key
+      - value
+      - updated_at
+      title: ConfigOut
+    ConfigUpdate:
+      properties:
+        value:
+          type: string
+          maxLength: 500
+          minLength: 1
+          title: Value
+      type: object
+      required:
+      - value
+      title: ConfigUpdate
+      description: Request body for PUT /settings/config/{key}.
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    PreferenceOut:
+      properties:
+        user_id:
+          type: string
+          title: User Id
+        notification_email:
+          type: boolean
+          title: Notification Email
+        notification_sms:
+          type: boolean
+          title: Notification Sms
+        language:
+          type: string
+          enum:
+          - en
+          - hi
+          - ta
+          title: Language
+        theme:
+          type: string
+          enum:
+          - light
+          - dark
+          title: Theme
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+      type: object
+      required:
+      - user_id
+      - notification_email
+      - notification_sms
+      - language
+      - theme
+      - updated_at
+      title: PreferenceOut
+    PreferenceUpdate:
+      properties:
+        notification_email:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Notification Email
+        notification_sms:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Notification Sms
+        language:
+          anyOf:
+          - type: string
+            enum:
+            - en
+            - hi
+            - ta
+          - type: 'null'
+          title: Language
+        theme:
+          anyOf:
+          - type: string
+            enum:
+            - light
+            - dark
+          - type: 'null'
+          title: Theme
+      type: object
+      title: PreferenceUpdate
+      description: 'Request body for PUT /settings/preferences.
+
+
+        All fields optional — only the fields supplied are changed, so a client
+
+        can update just the theme without resending notification settings.'
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

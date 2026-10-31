@@ -1,0 +1,116 @@
+openapi: 3.0.3
+info:
+  title: Notification Generation API
+  description: API for generating and retrieving notifications (e.g. for complaint status changes).
+  version: 1.0.0
+servers:
+  - url: http://localhost:8000/api/v1
+tags:
+  - name: Notifications
+    description: Operations related to notifications
+paths:
+  /notifications:
+    post:
+      tags:
+        - Notifications
+      summary: Create a notification
+      description: Generates a new notification, commonly used when complaint status changes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationCreate'
+      responses:
+        '201':
+          description: Notification created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationOut'
+        '404':
+          description: Resident not found
+        '422':
+          description: Validation Error
+    get:
+      tags:
+        - Notifications
+      summary: Get notifications for a resident
+      description: Returns a resident's notifications, ordered by newest first.
+      parameters:
+        - name: resident_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: The UUID of the resident
+        - name: skip
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+      responses:
+        '200':
+          description: A list of notifications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NotificationOut'
+        '404':
+          description: Resident not found
+
+components:
+  schemas:
+    NotificationCreate:
+      type: object
+      required:
+        - resident_id
+        - title
+        - message
+      properties:
+        resident_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        message:
+          type: string
+        notification_type:
+          type: string
+          default: "general"
+    NotificationOut:
+      type: object
+      required:
+        - notification_id
+        - resident_id
+        - title
+        - message
+        - is_read
+        - created_at
+      properties:
+        notification_id:
+          type: string
+          format: uuid
+        resident_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        message:
+          type: string
+        notification_type:
+          type: string
+        is_read:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time

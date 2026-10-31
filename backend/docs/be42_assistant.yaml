@@ -1,0 +1,459 @@
+openapi: 3.1.0
+info:
+  title: Agentic AI Assistant API — BE-42
+  description: 'An assistant that answers questions, navigates the user to the right screen, and proposes
+    actions. Chat never writes to the database: it proposes, and the user confirms through a separate
+    request. Ownership, role and expiry are re-checked at confirm time, and every action delegates to
+    the module that owns it, so the assistant can never enforce a weaker rule than the module''s own endpoint.'
+  version: 1.0.0
+servers:
+- url: http://localhost:8000/api/v1
+  description: Local development server
+tags:
+- name: AI Assistant
+  description: Conversational assistant that proposes actions for the user to confirm
+paths:
+  /assistant/tools:
+    get:
+      tags:
+      - AI Assistant
+      summary: List what the assistant can do for you
+      operationId: list_tools_api_v1_assistant_tools_get
+      x-backlog-id: BE-42
+      x-user-story: As a resident or manager, I want a conversational assistant that can act on my behalf,
+        so that routine tasks do not need me to find the right screen.
+      description: Returns the actions the authenticated caller is allowed to run, with the parameters
+        each one needs. The list is filtered by role, so a client can render only buttons that will actually
+        work.
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/ToolInfo'
+                type: array
+                title: Response List Tools Api V1 Assistant Tools Get
+        '401':
+          description: No valid Bearer token
+  /assistant/chat:
+    post:
+      tags:
+      - AI Assistant
+      summary: Send a message to the assistant
+      operationId: chat_api_v1_assistant_chat_post
+      x-backlog-id: BE-42
+      x-user-story: As a resident or manager, I want a conversational assistant that can act on my behalf,
+        so that routine tasks do not need me to find the right screen.
+      description: 'Interprets one natural-language message and replies. This endpoint never writes to
+        the database — at most it *proposes* an action, which the caller then confirms separately.
+
+
+        `kind` says how to render the reply: `answer` (direct response), `proposal` (an action is waiting,
+        show `action` and a confirm button), `needs_input` (a required field is missing, see `missing`),
+        `refusal` (role not permitted) or `fallback` (not understood).
+
+
+        Interpretation is deterministic and runs with no API key. A configured AI provider is used only
+        to reword replies, never to choose or widen an action — the action set is a closed registry in
+        the backend.'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+        required: true
+      responses:
+        '200':
+          description: Assistant reply
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatReply'
+        '401':
+          description: No valid Bearer token
+        '422':
+          description: Empty or oversized message
+  /assistant/actions/{action_id}/confirm:
+    post:
+      tags:
+      - AI Assistant
+      summary: Confirm a proposed action
+      operationId: confirm_action_api_v1_assistant_actions__action_id__confirm_post
+      x-backlog-id: BE-42
+      x-user-story: As a resident or manager, I want a conversational assistant that can act on my behalf,
+        so that routine tasks do not need me to find the right screen.
+      description: 'Executes a previously proposed action by delegating to the module that owns it, so
+        the same validation applies as on the module''s own REST endpoint.
+
+
+        Ownership, role and expiry are all re-checked here rather than trusted from propose time — a role
+        can change between the two requests, and a stale proposal must not be replayable.'
+      parameters:
+      - name: action_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Action Id
+      responses:
+        '200':
+          description: Action executed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionOut'
+        '401':
+          description: No valid Bearer token
+        '403':
+          description: Action belongs to another user, or role may not run it
+        '404':
+          description: Action not found
+        '409':
+          description: Action was already confirmed or rejected
+        '410':
+          description: Proposal expired
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /assistant/actions/{action_id}/reject:
+    post:
+      tags:
+      - AI Assistant
+      summary: Reject a proposed action
+      operationId: reject_action_api_v1_assistant_actions__action_id__reject_post
+      x-backlog-id: BE-42
+      x-user-story: As a resident or manager, I want a conversational assistant that can act on my behalf,
+        so that routine tasks do not need me to find the right screen.
+      description: Discards a proposal without running it. The record is kept for the audit trail.
+      parameters:
+      - name: action_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Action Id
+      responses:
+        '200':
+          description: Action rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionOut'
+        '401':
+          description: No valid Bearer token
+        '403':
+          description: Action belongs to another user
+        '404':
+          description: Action not found
+        '409':
+          description: Action was already confirmed or rejected
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /assistant/actions:
+    get:
+      tags:
+      - AI Assistant
+      summary: Your assistant action history
+      operationId: list_actions_api_v1_assistant_actions_get
+      x-backlog-id: BE-42
+      x-user-story: As a resident or manager, I want a conversational assistant that can act on my behalf,
+        so that routine tasks do not need me to find the right screen.
+      description: Returns every action the assistant proposed to the authenticated caller, newest first,
+        with what happened to each. This is the audit trail for anything the assistant did on their behalf.
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: proposed / confirmed / rejected / expired
+          title: Status
+        description: proposed / confirmed / rejected / expired
+      - name: skip
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Skip
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ActionOut'
+                title: Response List Actions Api V1 Assistant Actions Get
+        '401':
+          description: No valid Bearer token
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    ActionOut:
+      properties:
+        action_id:
+          type: string
+          title: Action Id
+        tool:
+          type: string
+          title: Tool
+        params:
+          type: object
+          title: Params
+          default: {}
+        summary:
+          type: string
+          title: Summary
+        status:
+          type: string
+          enum:
+          - proposed
+          - confirmed
+          - rejected
+          - expired
+          title: Status
+        result_ref:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Result Ref
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        expires_at:
+          type: string
+          format: date-time
+          title: Expires At
+        resolved_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Resolved At
+      type: object
+      required:
+      - action_id
+      - tool
+      - summary
+      - status
+      - created_at
+      - expires_at
+      title: ActionOut
+    ChatReply:
+      properties:
+        kind:
+          type: string
+          enum:
+          - answer
+          - proposal
+          - needs_input
+          - refusal
+          - fallback
+          - navigate
+          title: Kind
+        text:
+          type: string
+          title: Text
+        data:
+          type: object
+          title: Data
+          description: Structured payload backing the answer, if any
+          default: {}
+        action:
+          anyOf:
+          - $ref: '#/components/schemas/ProposedActionOut'
+          - type: 'null'
+        destination:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Destination
+          description: Stable semantic key for the target screen, set when kind is 'navigate' (e.g. 'temple_donate').
+            This is the contract — prefer mapping it to your own route table over using `route` directly.
+        route:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Route
+          description: Default client-side path for `destination`, provided as a convenience. Always a
+            route that exists in the reference app.
+        missing:
+          items:
+            type: string
+          type: array
+          title: Missing
+          default: []
+        suggestions:
+          items:
+            type: string
+          type: array
+          title: Suggestions
+          default: []
+        source:
+          type: string
+          enum:
+          - rules
+          - llm
+          title: Source
+          description: Which path produced the reply text
+          default: rules
+      type: object
+      required:
+      - kind
+      - text
+      title: ChatReply
+      description: "One assistant turn.\n\n`kind` tells the client how to render it:\n  answer      —\
+        \ a direct response, nothing to confirm\n  proposal    — an action is waiting; show `action` and\
+        \ a confirm button\n  needs_input — a slot is missing; `missing` lists what to ask for\n  refusal\
+        \     — the caller's role may not run what they asked for\n  navigate    — push `route`; the user\
+        \ asked to be taken somewhere\n  fallback    — not understood; `suggestions` offers a way forward"
+    ChatRequest:
+      properties:
+        message:
+          type: string
+          maxLength: 1000
+          minLength: 1
+          title: Message
+      type: object
+      required:
+      - message
+      title: ChatRequest
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    ProposedActionOut:
+      properties:
+        action_id:
+          type: string
+          title: Action Id
+        tool:
+          type: string
+          title: Tool
+        label:
+          type: string
+          title: Label
+        params:
+          type: object
+          title: Params
+          default: {}
+        summary:
+          type: string
+          title: Summary
+          description: Exactly what confirming this will do
+        status:
+          type: string
+          enum:
+          - proposed
+          - confirmed
+          - rejected
+          - expired
+          title: Status
+        expires_at:
+          type: string
+          format: date-time
+          title: Expires At
+      type: object
+      required:
+      - action_id
+      - tool
+      - label
+      - summary
+      - status
+      - expires_at
+      title: ProposedActionOut
+    ToolInfo:
+      properties:
+        tool:
+          type: string
+          title: Tool
+        label:
+          type: string
+          title: Label
+        description:
+          type: string
+          title: Description
+        required:
+          items:
+            type: string
+          type: array
+          title: Required
+          default: []
+        optional:
+          items:
+            type: string
+          type: array
+          title: Optional
+          default: []
+      type: object
+      required:
+      - tool
+      - label
+      - description
+      title: ToolInfo
+      description: One entry in the tool registry, filtered to what the caller may run.
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

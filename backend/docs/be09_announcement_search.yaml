@@ -1,0 +1,65 @@
+openapi: 3.0.3
+info:
+  title: Announcement Search API
+  description: Endpoints to query announcements by keyword, category, or date.
+  version: 1.0.0
+
+paths:
+  /api/v1/announcements/search:
+    get:
+      summary: Search announcements
+      description: Returns announcements matching the search criteria. Empty query set returns an empty list.
+      tags:
+        - Announcements
+      parameters:
+        - name: keyword
+          in: query
+          description: Search keyword in title or body.
+          required: false
+          schema:
+            type: string
+        - name: category
+          in: query
+          description: Category of the announcement.
+          required: false
+          schema:
+            type: string
+        - name: date
+          in: query
+          description: Date in YYYY-MM-DD format.
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A list of announcements matching criteria
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AnnouncementResponse'
+
+components:
+  schemas:
+    AnnouncementResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        body:
+          type: string
+        author:
+          type: string
+        visibility:
+          type: string
+        category:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time

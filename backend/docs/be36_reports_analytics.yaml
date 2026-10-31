@@ -1,0 +1,277 @@
+openapi: 3.0.3
+info:
+  title: Reports & Analytics API — BE-36
+  description: >
+    Reports & Analytics API for the Jains Kences Retreat Apartment
+    Association Management System. Serves cross-module aggregated metrics —
+    counts, averages, and participation rates — for the President's
+    dashboard.
+
+    There is no dedicated database table behind this module
+    (docs/database/database-schema.md explicitly calls this out as a design
+    principle): every endpoint derives its numbers by querying the
+    payments, residents, visitors, maintenance, temple and community
+    tables directly.
+
+    Complaints and staff already have their own analytics endpoints
+    (`GET /complaints/stats`, `GET /complaints/reports`, `GET
+    /staff/workload`) and are not duplicated here.
+
+    Date ranges: every endpoint accepts optional `date_from`/`date_to`. When
+    omitted, the range defaults to the trailing 30 days ending today. An
+    inverted range (`date_from` after `date_to`) returns 422. For the
+    `residents` report, only `new_move_ins` is range-scoped — status counts,
+    occupancy rate and the by-block breakdown are point-in-time.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Reports
+    description: Cross-module aggregated metrics (counts, averages, participation)
+
+paths:
+
+  /reports/summary:
+    get:
+      tags: [Reports]
+      summary: Cross-module headline metrics
+      parameters:
+        - { $ref: "#/components/parameters/DateFrom" }
+        - { $ref: "#/components/parameters/DateTo" }
+      responses:
+        "200":
+          description: Summary returned successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReportSummaryOut" }
+        "422":
+          description: date_from is later than date_to
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+  /reports/payments:
+    get:
+      tags: [Reports]
+      summary: Billing and collections aggregates
+      parameters:
+        - { $ref: "#/components/parameters/DateFrom" }
+        - { $ref: "#/components/parameters/DateTo" }
+      responses:
+        "200":
+          description: Report returned successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PaymentsReportOut" }
+        "422":
+          description: date_from is later than date_to
+
+  /reports/residents:
+    get:
+      tags: [Reports]
+      summary: Occupancy and residency status aggregates
+      description: >
+        Status counts, occupancy rate and the by-block breakdown are
+        point-in-time. date_from/date_to only scope `new_move_ins`.
+      parameters:
+        - { $ref: "#/components/parameters/DateFrom" }
+        - { $ref: "#/components/parameters/DateTo" }
+      responses:
+        "200":
+          description: Report returned successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResidentsReportOut" }
+        "422":
+          description: date_from is later than date_to
+
+  /reports/visitors:
+    get:
+      tags: [Reports]
+      summary: Gate traffic aggregates
+      parameters:
+        - { $ref: "#/components/parameters/DateFrom" }
+        - { $ref: "#/components/parameters/DateTo" }
+      responses:
+        "200":
+          description: Report returned successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VisitorsReportOut" }
+        "422":
+          description: date_from is later than date_to
+
+  /reports/maintenance:
+    get:
+      tags: [Reports]
+      summary: Scheduled maintenance aggregates
+      parameters:
+        - { $ref: "#/components/parameters/DateFrom" }
+        - { $ref: "#/components/parameters/DateTo" }
+      responses:
+        "200":
+          description: Report returned successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MaintenanceReportOut" }
+        "422":
+          description: date_from is later than date_to
+
+  /reports/temple:
+    get:
+      tags: [Reports]
+      summary: Temple seva/donation/event aggregates (BE-33 data)
+      parameters:
+        - { $ref: "#/components/parameters/DateFrom" }
+        - { $ref: "#/components/parameters/DateTo" }
+      responses:
+        "200":
+          description: Report returned successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TempleReportOut" }
+        "422":
+          description: date_from is later than date_to
+
+  /reports/community:
+    get:
+      tags: [Reports]
+      summary: Community corner activity/signup aggregates (BE-34 data)
+      parameters:
+        - { $ref: "#/components/parameters/DateFrom" }
+        - { $ref: "#/components/parameters/DateTo" }
+      responses:
+        "200":
+          description: Report returned successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CommunityReportOut" }
+        "422":
+          description: date_from is later than date_to
+
+components:
+  parameters:
+    DateFrom:
+      name: date_from
+      in: query
+      required: false
+      schema: { type: string, format: date }
+      description: "Start of the range (default: 30 days before date_to)"
+    DateTo:
+      name: date_to
+      in: query
+      required: false
+      schema: { type: string, format: date }
+      description: "End of the range (default: today)"
+
+  schemas:
+
+    LabelCount:
+      type: object
+      properties:
+        label: { type: string }
+        count: { type: integer }
+
+    ReportSummaryOut:
+      type: object
+      properties:
+        date_from: { type: string, format: date }
+        date_to:   { type: string, format: date }
+        active_residents:           { type: integer }
+        outstanding_bills_count:    { type: integer }
+        outstanding_bills_amount:   { type: string }
+        payments_collected_count:   { type: integer }
+        payments_collected_amount:  { type: string }
+        visitors_count:             { type: integer }
+        temple_bookings_count:      { type: integer }
+        temple_donations_amount:    { type: string }
+        community_signups_count:    { type: integer }
+
+    PaymentsReportOut:
+      type: object
+      properties:
+        date_from: { type: string, format: date }
+        date_to:   { type: string, format: date }
+        total_billed:         { type: string }
+        total_collected:      { type: string }
+        total_outstanding:    { type: string }
+        average_bill_amount:  { type: string, description: "total_billed / number of bills in range" }
+        bill_count:           { type: integer }
+        by_status:
+          type: array
+          items: { $ref: "#/components/schemas/LabelCount" }
+
+    ResidentsReportOut:
+      type: object
+      properties:
+        date_from: { type: string, format: date }
+        date_to:   { type: string, format: date }
+        total_residents: { type: integer }
+        by_status:
+          type: array
+          items: { $ref: "#/components/schemas/LabelCount" }
+        occupancy_rate: { type: number, description: "occupied flats / total flats" }
+        by_block:
+          type: array
+          items: { $ref: "#/components/schemas/LabelCount" }
+        new_move_ins: { type: integer }
+
+    VisitorsReportOut:
+      type: object
+      properties:
+        date_from: { type: string, format: date }
+        date_to:   { type: string, format: date }
+        total_visitors: { type: integer }
+        by_status:
+          type: array
+          items: { $ref: "#/components/schemas/LabelCount" }
+        by_purpose:
+          type: array
+          items: { $ref: "#/components/schemas/LabelCount" }
+        average_per_day: { type: number }
+
+    MaintenanceReportOut:
+      type: object
+      properties:
+        date_from: { type: string, format: date }
+        date_to:   { type: string, format: date }
+        total_scheduled: { type: integer }
+        upcoming_count:  { type: integer, description: "scheduled_date >= today" }
+        past_count:      { type: integer, description: "scheduled_date < today" }
+
+    TempleReportOut:
+      type: object
+      properties:
+        date_from: { type: string, format: date }
+        date_to:   { type: string, format: date }
+        bookings_total: { type: integer }
+        bookings_by_seva_type:
+          type: array
+          items: { $ref: "#/components/schemas/LabelCount" }
+        donations_count:   { type: integer }
+        donations_total:   { type: string }
+        donations_average: { type: string }
+        event_signups_count:     { type: integer }
+        volunteer_signups_count: { type: integer }
+        participation_rate: { type: number, description: "distinct residents engaged ÷ active residents" }
+
+    CommunityReportOut:
+      type: object
+      properties:
+        date_from: { type: string, format: date }
+        date_to:   { type: string, format: date }
+        activities_count: { type: integer }
+        signups_count:    { type: integer }
+        average_signups_per_activity: { type: number }
+        participation_rate: { type: number, description: "distinct residents engaged ÷ active residents" }
+        by_corner:
+          type: array
+          items: { $ref: "#/components/schemas/LabelCount" }
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail: { type: string }

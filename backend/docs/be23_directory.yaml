@@ -1,0 +1,714 @@
+openapi: 3.1.0
+info:
+  title: Directory & Household API — BE-23
+  description: Directory and household lookup for Jains Kences Retreat. Phone numbers are masked for non-management
+    roles, so the same endpoint returns different detail depending on who is asking.
+  version: 1.0.0
+servers:
+- url: http://localhost:8000/api/v1
+  description: Local development server
+tags:
+- name: Directory
+  description: Resident and flat directory with role-aware phone masking
+paths:
+  /directory:
+    get:
+      tags:
+      - Directory
+      summary: Directory overview
+      operationId: get_overview_api_v1_directory_get
+      x-backlog-id: BE-23
+      x-user-story: As a resident, I want a searchable directory of residents and flats, so that I can
+        find a neighbour or a flat's details without asking the office.
+      description: Returns flat counts, resident counts, and the list of blocks in the society.
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectoryOverview'
+  /directory/residents:
+    get:
+      tags:
+      - Directory
+      summary: List residents
+      operationId: list_residents_api_v1_directory_residents_get
+      x-backlog-id: BE-23
+      x-user-story: As a resident, I want a searchable directory of residents and flats, so that I can
+        find a neighbour or a flat's details without asking the office.
+      description: Paginated resident list. Filter by `status`, `block`, or `resident_type` (owner / tenant).
+        Phone numbers are masked for non-management roles viewing other residents.
+      parameters:
+      - name: skip
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          description: Records to skip
+          default: 0
+          title: Skip
+        description: Records to skip
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          description: Max records to return
+          default: 20
+          title: Limit
+        description: Max records to return
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: 'Filter by status: active / inactive / moved_out'
+          title: Status
+        description: 'Filter by status: active / inactive / moved_out'
+      - name: block
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Filter by block/wing, e.g. 'A'
+          title: Block
+        description: Filter by block/wing, e.g. 'A'
+      - name: resident_type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: 'Filter by type: owner / tenant'
+          title: Resident Type
+        description: 'Filter by type: owner / tenant'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResidentSummary'
+                title: Response List Residents Api V1 Directory Residents Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /directory/residents/{resident_id}:
+    get:
+      tags:
+      - Directory
+      summary: Get resident profile
+      operationId: get_resident_api_v1_directory_residents__resident_id__get
+      x-backlog-id: BE-23
+      x-user-story: As a resident, I want a searchable directory of residents and flats, so that I can
+        find a neighbour or a flat's details without asking the office.
+      description: Returns full resident profile including flat, family members, and emergency contacts.
+        Phone and emergency contacts are masked/hidden for non-management roles viewing other residents.
+      parameters:
+      - name: resident_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Resident Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResidentOut'
+        '404':
+          description: Resident not found
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /directory/flats:
+    get:
+      tags:
+      - Directory
+      summary: List flats
+      operationId: list_flats_api_v1_directory_flats_get
+      x-backlog-id: BE-23
+      x-user-story: As a resident, I want a searchable directory of residents and flats, so that I can
+        find a neighbour or a flat's details without asking the office.
+      description: Paginated flat list with optional filters for block, ownership type, and occupancy
+        status. Each flat includes its active residents.
+      parameters:
+      - name: skip
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          description: Records to skip
+          default: 0
+          title: Skip
+        description: Records to skip
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          description: Max records to return
+          default: 20
+          title: Limit
+        description: Max records to return
+      - name: block
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Filter by block/wing
+          title: Block
+        description: Filter by block/wing
+      - name: ownership_type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: 'Filter by ownership: owned / rented'
+          title: Ownership Type
+        description: 'Filter by ownership: owned / rented'
+      - name: occupancy_status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: 'Filter by occupancy: occupied / vacant'
+          title: Occupancy Status
+        description: 'Filter by occupancy: occupied / vacant'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DirectoryFlatOut'
+                title: Response List Flats Api V1 Directory Flats Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /directory/flats/{flat_id}:
+    get:
+      tags:
+      - Directory
+      summary: Get flat detail
+      operationId: get_flat_api_v1_directory_flats__flat_id__get
+      x-backlog-id: BE-23
+      x-user-story: As a resident, I want a searchable directory of residents and flats, so that I can
+        find a neighbour or a flat's details without asking the office.
+      description: Returns flat details including all active residents.
+      parameters:
+      - name: flat_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Flat Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectoryFlatOut'
+        '404':
+          description: Flat not found
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /directory/household/{resident_id}:
+    get:
+      tags:
+      - Directory
+      summary: Get household members
+      operationId: get_household_api_v1_directory_household__resident_id__get
+      x-backlog-id: BE-23
+      x-user-story: As a resident, I want a searchable directory of residents and flats, so that I can
+        find a neighbour or a flat's details without asking the office.
+      description: Returns the family members registered under a resident.
+      parameters:
+      - name: resident_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Resident Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FamilyMemberOut'
+                title: Response Get Household Api V1 Directory Household  Resident Id  Get
+        '404':
+          description: Resident not found
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /directory/emergency-contacts/{resident_id}:
+    get:
+      tags:
+      - Directory
+      summary: Get emergency contacts
+      operationId: get_emergency_contacts_api_v1_directory_emergency_contacts__resident_id__get
+      x-backlog-id: BE-23
+      x-user-story: As a resident, I want a searchable directory of residents and flats, so that I can
+        find a neighbour or a flat's details without asking the office.
+      description: Returns emergency contacts for a resident. Only accessible by the resident themselves
+        or management roles (admin, president, secretary).
+      parameters:
+      - name: resident_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Resident Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EmergencyContactOut'
+                title: Response Get Emergency Contacts Api V1 Directory Emergency Contacts  Resident Id  Get
+        '403':
+          description: Insufficient permissions
+        '404':
+          description: Resident not found
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /directory/search:
+    get:
+      tags:
+      - Directory
+      summary: Search directory
+      operationId: search_api_v1_directory_search_get
+      x-backlog-id: BE-23
+      x-user-story: As a resident, I want a searchable directory of residents and flats, so that I can
+        find a neighbour or a flat's details without asking the office.
+      description: Searches residents (by name/phone) and flats (by block/flat number) in a single call.
+        Minimum 2 characters required.
+      parameters:
+      - name: q
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 2
+          description: Search term
+          title: Q
+        description: Search term
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          description: Max results per category
+          default: 20
+          title: Limit
+        description: Max results per category
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectorySearchResult'
+        '422':
+          description: Query too short
+components:
+  schemas:
+    DirectoryFlatOut:
+      properties:
+        block:
+          type: string
+          maxLength: 10
+          minLength: 1
+          title: Block
+        floor:
+          anyOf:
+          - type: string
+            maxLength: 10
+          - type: 'null'
+          title: Floor
+        flat_number:
+          type: string
+          maxLength: 10
+          minLength: 1
+          title: Flat Number
+        ownership_type:
+          anyOf:
+          - type: string
+            enum:
+            - owned
+            - rented
+          - type: 'null'
+          title: Ownership Type
+        occupancy_status:
+          anyOf:
+          - type: string
+            enum:
+            - occupied
+            - vacant
+          - type: 'null'
+          title: Occupancy Status
+          default: vacant
+        flat_id:
+          type: string
+          title: Flat Id
+        resident_count:
+          type: integer
+          title: Resident Count
+          default: 0
+        residents:
+          items:
+            $ref: '#/components/schemas/ResidentSummary'
+          type: array
+          title: Residents
+          default: []
+      type: object
+      required:
+      - block
+      - flat_number
+      - flat_id
+      title: DirectoryFlatOut
+    DirectoryOverview:
+      properties:
+        total_flats:
+          type: integer
+          title: Total Flats
+        occupied_flats:
+          type: integer
+          title: Occupied Flats
+        vacant_flats:
+          type: integer
+          title: Vacant Flats
+        total_residents:
+          type: integer
+          title: Total Residents
+        active_residents:
+          type: integer
+          title: Active Residents
+        blocks:
+          items:
+            type: string
+          type: array
+          title: Blocks
+      type: object
+      required:
+      - total_flats
+      - occupied_flats
+      - vacant_flats
+      - total_residents
+      - active_residents
+      - blocks
+      title: DirectoryOverview
+    DirectorySearchResult:
+      properties:
+        residents:
+          items:
+            $ref: '#/components/schemas/ResidentSummary'
+          type: array
+          title: Residents
+          default: []
+        flats:
+          items:
+            $ref: '#/components/schemas/DirectoryFlatOut'
+          type: array
+          title: Flats
+          default: []
+      type: object
+      title: DirectorySearchResult
+    EmergencyContactOut:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+        relationship:
+          anyOf:
+          - type: string
+            maxLength: 50
+          - type: 'null'
+          title: Relationship
+        phone:
+          type: string
+          maxLength: 15
+          minLength: 7
+          title: Phone
+        contact_id:
+          type: string
+          title: Contact Id
+        resident_id:
+          type: string
+          title: Resident Id
+      type: object
+      required:
+      - name
+      - phone
+      - contact_id
+      - resident_id
+      title: EmergencyContactOut
+    FamilyMemberOut:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+        relation:
+          anyOf:
+          - type: string
+            maxLength: 50
+          - type: 'null'
+          title: Relation
+        phone:
+          anyOf:
+          - type: string
+            maxLength: 15
+          - type: 'null'
+          title: Phone
+        member_id:
+          type: string
+          title: Member Id
+        resident_id:
+          type: string
+          title: Resident Id
+      type: object
+      required:
+      - name
+      - member_id
+      - resident_id
+      title: FamilyMemberOut
+    FlatOut:
+      properties:
+        block:
+          type: string
+          maxLength: 10
+          minLength: 1
+          title: Block
+        floor:
+          anyOf:
+          - type: string
+            maxLength: 10
+          - type: 'null'
+          title: Floor
+        flat_number:
+          type: string
+          maxLength: 10
+          minLength: 1
+          title: Flat Number
+        ownership_type:
+          anyOf:
+          - type: string
+            enum:
+            - owned
+            - rented
+          - type: 'null'
+          title: Ownership Type
+        occupancy_status:
+          anyOf:
+          - type: string
+            enum:
+            - occupied
+            - vacant
+          - type: 'null'
+          title: Occupancy Status
+          default: vacant
+        flat_id:
+          type: string
+          title: Flat Id
+      type: object
+      required:
+      - block
+      - flat_number
+      - flat_id
+      title: FlatOut
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    ResidentOut:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+        phone:
+          anyOf:
+          - type: string
+            maxLength: 15
+          - type: 'null'
+          title: Phone
+        occupation:
+          anyOf:
+          - type: string
+            maxLength: 100
+          - type: 'null'
+          title: Occupation
+        move_in_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Move In Date
+        move_out_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Move Out Date
+        status:
+          type: string
+          enum:
+          - active
+          - inactive
+          - moved_out
+          title: Status
+          default: active
+        resident_id:
+          type: string
+          title: Resident Id
+        flat_id:
+          type: string
+          title: Flat Id
+        flat:
+          anyOf:
+          - $ref: '#/components/schemas/FlatOut'
+          - type: 'null'
+        family_members:
+          items:
+            $ref: '#/components/schemas/FamilyMemberOut'
+          type: array
+          title: Family Members
+          default: []
+        emergency_contacts:
+          items:
+            $ref: '#/components/schemas/EmergencyContactOut'
+          type: array
+          title: Emergency Contacts
+          default: []
+      type: object
+      required:
+      - name
+      - resident_id
+      - flat_id
+      title: ResidentOut
+    ResidentSummary:
+      properties:
+        resident_id:
+          type: string
+          title: Resident Id
+        name:
+          type: string
+          title: Name
+        phone:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Phone
+        status:
+          type: string
+          enum:
+          - active
+          - inactive
+          - moved_out
+          title: Status
+        flat_id:
+          type: string
+          title: Flat Id
+        flat:
+          anyOf:
+          - $ref: '#/components/schemas/FlatOut'
+          - type: 'null'
+      type: object
+      required:
+      - resident_id
+      - name
+      - phone
+      - status
+      - flat_id
+      title: ResidentSummary
+      description: Lightweight response used in list/search endpoints.
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

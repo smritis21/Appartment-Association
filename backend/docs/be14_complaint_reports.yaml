@@ -1,0 +1,259 @@
+openapi: 3.0.3
+info:
+  title: Complaint Reports API — BE-14
+  version: "1.0"
+  description: |
+    Filtered complaint reporting for the Jains Kences Retreat Apartment Association.
+
+    **User story**: As an Association President or Manager, I want to generate
+    filtered reports of complaints so that I can track resolution performance,
+    identify problem categories, and monitor staff workload over any date range.
+
+    **Key design points**:
+    - All filters are optional and fully combinable.
+    - Results are ordered by `created_at` descending (newest first).
+    - The response includes both the paginated item list and summary counts
+      (`by_status`, `by_category`) scoped to the same filters — so a chart
+      can be drawn without a second request.
+    - This endpoint is read-only and does not modify any complaint state.
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Complaints
+    description: Complaint management and reporting
+
+paths:
+
+  /complaints/reports:
+    get:
+      tags: [Complaints]
+      summary: Filtered complaint report
+      operationId: getComplaintReport
+      description: |
+        Returns a paginated, filtered list of complaints for management reporting.
+
+        **Filters** (all optional, all combinable):
+        | Parameter    | Description |
+        |---|---|
+        | `status`     | One of: submitted / assigned / in_progress / resolved / closed |
+        | `category`   | Exact match on complaint category (e.g. "plumbing") |
+        | `assigned_to`| Staff UUID — complaints assigned to this person |
+        | `raised_by`  | Resident UUID — complaints raised by this resident |
+        | `date_from`  | Inclusive lower bound on `created_at` (YYYY-MM-DD) |
+        | `date_to`    | Inclusive upper bound on `created_at` (YYYY-MM-DD) |
+
+        **Pagination**: `page` (1-based) and `page_size` (1–100, default 20).
+
+        **Response summary counts** (`by_status`, `by_category`) are scoped to
+        the same filters, not the entire complaints table.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [submitted, assigned, in_progress, resolved, closed]
+          description: Filter by complaint status
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by complaint category (exact match)
+        - name: assigned_to
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by assigned staff UUID
+        - name: raised_by
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by resident UUID who raised the complaint
+        - name: date_from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: "Inclusive start date for created_at filter (YYYY-MM-DD)"
+        - name: date_to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+          description: "Inclusive end date for created_at filter (YYYY-MM-DD)"
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: Page number (1-based)
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+          description: Items per page
+      responses:
+        '200':
+          description: Report returned successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplaintReportResponse'
+              example:
+                total: 42
+                page: 1
+                page_size: 20
+                pages: 3
+                items:
+                  - complaint_id: "c1c2c3c4-0000-0000-0000-000000000001"
+                    category: "plumbing"
+                    description: "Leaking pipe in bathroom"
+                    location: "Block A, Flat 101"
+                    raised_by: "r1r2r3r4-0000-0000-0000-000000000001"
+                    status: "in_progress"
+                    assigned_to: "s1s2s3s4-0000-0000-0000-000000000001"
+                    assigned_name: "Ravi Kumar"
+                    assigned_at: "2026-07-01T10:00:00"
+                    created_at: "2026-07-01T09:00:00"
+                    updated_at: "2026-07-01T10:00:00"
+                by_status:
+                  submitted: 5
+                  assigned: 10
+                  in_progress: 15
+                  resolved: 8
+                  closed: 4
+                by_category:
+                  - category: "plumbing"
+                    count: 18
+                  - category: "electrical"
+                    count: 12
+                generated_at: "2026-07-15T12:00:00Z"
+        '422':
+          description: Validation error (e.g. date_from after date_to, invalid date format)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              examples:
+                invalid_date_range:
+                  summary: date_from after date_to
+                  value:
+                    detail: "date_from must not be later than date_to."
+                invalid_date_format:
+                  summary: Bad date format
+                  value:
+                    detail: "Invalid date format for 'date_from': expected YYYY-MM-DD, got '01-07-2026'."
+
+components:
+  schemas:
+
+    ComplaintReportItem:
+      type: object
+      properties:
+        complaint_id:
+          type: string
+          description: UUID of the complaint
+        category:
+          type: string
+          description: Complaint category (e.g. plumbing, electrical)
+        description:
+          type: string
+        location:
+          type: string
+          nullable: true
+        raised_by:
+          type: string
+          nullable: true
+          description: Resident UUID who raised the complaint
+        status:
+          type: string
+          enum: [submitted, assigned, in_progress, resolved, closed]
+        assigned_to:
+          type: string
+          nullable: true
+          description: Staff UUID the complaint is assigned to
+        assigned_name:
+          type: string
+          nullable: true
+          description: Display name of the assigned staff member (resolved from FK)
+        assigned_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ComplaintStatusCounts:
+      type: object
+      properties:
+        submitted:
+          type: integer
+        assigned:
+          type: integer
+        in_progress:
+          type: integer
+        resolved:
+          type: integer
+        closed:
+          type: integer
+
+    CategoryCount:
+      type: object
+      properties:
+        category:
+          type: string
+        count:
+          type: integer
+
+    ComplaintReportResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+          description: Total matching complaints before pagination
+        page:
+          type: integer
+        page_size:
+          type: integer
+        pages:
+          type: integer
+          description: Total number of pages
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ComplaintReportItem'
+        by_status:
+          $ref: '#/components/schemas/ComplaintStatusCounts'
+          description: Status counts scoped to the same filters
+        by_category:
+          type: array
+          items:
+            $ref: '#/components/schemas/CategoryCount'
+          description: Category counts scoped to the same filters, busiest first
+        generated_at:
+          type: string
+          format: date-time
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail:
+          type: string

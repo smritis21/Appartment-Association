@@ -1,0 +1,291 @@
+openapi: 3.0.3
+info:
+  title: Document Management API — BE-38
+  description: |
+    Society Document Management API for Jains Kences Retreat Apartment Association
+    Management System.
+
+    ## Role-Based Access
+    Pass the `X-User-Role` request header to control access:
+    - `admin`    — can upload, delete, and view all documents
+    - `resident` — can view `resident` and `public` documents
+    - `public`   — can view only `public` documents (default when header is absent)
+
+    ## File Constraints
+    - **Allowed types:** PDF, JPEG, PNG, GIF, TXT, DOC, DOCX
+    - **Maximum size:** 10 MB per file
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Documents
+    description: Upload, list, retrieve, download, and delete society documents
+
+paths:
+
+  /documents/upload:
+    post:
+      tags: [Documents]
+      summary: Upload a society document
+      description: |
+        Upload a document file along with its metadata.
+        **Admin role required** — send `X-User-Role: admin` header.
+
+        Allowed MIME types: `application/pdf`, `image/jpeg`, `image/png`,
+        `image/gif`, `text/plain`, `application/msword`,
+        `application/vnd.openxmlformats-officedocument.wordprocessingml.document`.
+
+        Maximum file size: **10 MB**.
+      security:
+        - RoleHeader: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, title]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The document file to upload
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                  description: Human-readable document title
+                category:
+                  type: string
+                  enum: [rules, minutes, notices, financial, legal, other]
+                  default: other
+                  description: Document category
+                description:
+                  type: string
+                  maxLength: 500
+                  nullable: true
+                  description: Optional description
+                access_role:
+                  type: string
+                  enum: [public, resident, admin]
+                  default: resident
+                  description: Minimum role required to access this document
+                uploaded_by:
+                  type: string
+                  maxLength: 100
+                  nullable: true
+                  description: Uploader name or ID (informational)
+            example:
+              title: "Society Rules 2026"
+              category: "rules"
+              access_role: "resident"
+              uploaded_by: "admin@jkr.com"
+      responses:
+        "201":
+          description: Document uploaded successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DocumentOut" }
+        "400":
+          description: Empty file
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "403":
+          description: Admin role required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "413":
+          description: File exceeds the 10 MB limit
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "415":
+          description: Unsupported file type
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "422":
+          description: Validation error (invalid category, access_role, or missing title)
+
+  /documents:
+    get:
+      tags: [Documents]
+      summary: List society documents
+      description: |
+        Returns documents the requester is allowed to see based on their role:
+        - `admin` role — sees all documents
+        - `resident` role — sees `resident` and `public` documents
+        - `public` / no header — sees only `public` documents
+
+        Optionally filter by `category`.
+      security:
+        - RoleHeader: []
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [rules, minutes, notices, financial, legal, other]
+          description: Filter documents by category
+        - name: skip
+          in: query
+          schema: { type: integer, default: 0, minimum: 0 }
+          description: Number of records to skip (pagination)
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+          description: Maximum number of records to return
+      responses:
+        "200":
+          description: List of accessible documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DocumentSummary" }
+
+  /documents/{document_id}:
+    get:
+      tags: [Documents]
+      summary: Get document metadata
+      description: |
+        Returns the full metadata for a single document.
+        Returns 403 if the requester's role is insufficient for this document's `access_role`.
+      security:
+        - RoleHeader: []
+      parameters:
+        - name: document_id
+          in: path
+          required: true
+          schema: { type: string }
+          description: UUID of the document
+      responses:
+        "200":
+          description: Document metadata
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DocumentOut" }
+        "403":
+          description: Access denied — insufficient role
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "404":
+          description: Document not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+    delete:
+      tags: [Documents]
+      summary: Delete a document
+      description: |
+        Permanently deletes the document metadata and its file from disk.
+        **Admin role required** — send `X-User-Role: admin` header.
+      security:
+        - RoleHeader: []
+      parameters:
+        - name: document_id
+          in: path
+          required: true
+          schema: { type: string }
+          description: UUID of the document to delete
+      responses:
+        "200":
+          description: Document deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail: { type: string, example: "Document 'abc-123' deleted successfully." }
+        "403":
+          description: Admin role required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "404":
+          description: Document not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+  /documents/{document_id}/download:
+    get:
+      tags: [Documents]
+      summary: Download a document
+      description: |
+        Streams the document file to the client with the original filename and MIME type.
+        Returns 403 if the requester's role is insufficient, or 404 if the file is
+        missing from disk.
+      security:
+        - RoleHeader: []
+      parameters:
+        - name: document_id
+          in: path
+          required: true
+          schema: { type: string }
+          description: UUID of the document to download
+      responses:
+        "200":
+          description: File content streamed to client
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "403":
+          description: Access denied — insufficient role
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "404":
+          description: Document or file not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+components:
+  securitySchemes:
+    RoleHeader:
+      type: apiKey
+      in: header
+      name: X-User-Role
+      description: |
+        Pass the requester's role. Valid values: `admin`, `resident`, `public`.
+        Defaults to `public` if absent or unrecognised.
+
+  schemas:
+
+    DocumentSummary:
+      type: object
+      description: Lightweight document record used in list responses (no file_path)
+      properties:
+        document_id:     { type: string, format: uuid }
+        title:           { type: string }
+        category:        { type: string, enum: [rules, minutes, notices, financial, legal, other] }
+        description:     { type: string, nullable: true }
+        mime_type:       { type: string }
+        file_size_bytes: { type: integer }
+        access_role:     { type: string, enum: [public, resident, admin] }
+        uploaded_by:     { type: string, nullable: true }
+        created_at:      { type: string, format: date-time }
+
+    DocumentOut:
+      allOf:
+        - $ref: "#/components/schemas/DocumentSummary"
+        - type: object
+          description: Full document record including original filename
+          properties:
+            filename:        { type: string, description: "Original filename as uploaded" }
+            stored_filename: { type: string, description: "UUID-prefixed filename stored on disk" }
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail: { type: string }

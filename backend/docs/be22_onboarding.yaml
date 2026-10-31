@@ -1,0 +1,559 @@
+openapi: 3.0.3
+info:
+  title: BE-22 — Onboarding & Approval API
+  version: "1.0"
+  description: |
+    Onboarding and approval endpoints for the Jains Kences Retreat
+    Apartment Association Management System.
+
+    **Status flow:**
+    ```
+    pending → approved   (secretary/admin/president approves)
+    pending → rejected   (secretary/admin/president rejects)
+    ```
+
+    **Role access:**
+    - `POST /register`, `POST /upload-document`, `GET /status/{id}` — public (no auth required)
+    - `GET /pending`, `GET /{id}`, `PUT /{id}/approve`, `PUT /{id}/reject` — secretary / admin / president only
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Onboarding
+    description: Resident onboarding and approval workflow
+
+paths:
+
+  /onboarding/register:
+    post:
+      tags: [Onboarding]
+      summary: Submit an onboarding registration
+      description: |
+        Creates a new onboarding application with `status = pending`.
+        Duplicate active (pending or approved) applications for the same
+        email address are rejected with 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OnboardingRegister'
+            examples:
+              owner:
+                summary: Owner registration
+                value:
+                  applicant_name: "Ravi Kumar"
+                  email: "ravi@jkr.com"
+                  phone: "9876543210"
+                  applicant_type: "owner"
+                  block: "A"
+                  floor: "2"
+                  flat_number: "201"
+                  move_in_date: "2024-01-15"
+                  occupation: "Engineer"
+              tenant:
+                summary: Tenant registration
+                value:
+                  applicant_name: "Priya Sharma"
+                  email: "priya@jkr.com"
+                  applicant_type: "tenant"
+                  block: "B"
+                  flat_number: "102"
+      responses:
+        '201':
+          description: Application created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationOut'
+        '409':
+          description: Active application already exists for this email
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              example:
+                detail: "An active onboarding application already exists for this email address."
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /onboarding/upload-document:
+    post:
+      tags: [Onboarding]
+      summary: Upload a KYC / supporting document
+      description: |
+        Attaches a document reference to an existing **pending** application.
+        No binary data is stored — supply a file path, URL, or object-storage key.
+        Documents can only be uploaded while the application is pending.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentUpload'
+            example:
+              application_id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+              document_type: "id_proof"
+              file_reference: "/uploads/ravi_id_proof.pdf"
+              original_filename: "ravi_id_proof.pdf"
+      responses:
+        '201':
+          description: Document recorded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentOut'
+        '400':
+          description: Application is not in pending status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              example:
+                detail: "Documents can only be uploaded to pending applications. This application is 'approved'."
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /onboarding/status/{application_id}:
+    get:
+      tags: [Onboarding]
+      summary: Get application status
+      description: |
+        Returns the current status and full detail of an application.
+        No authentication required — applicants can poll their own status.
+      parameters:
+        - $ref: '#/components/parameters/ApplicationId'
+      responses:
+        '200':
+          description: Application returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationOut'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /onboarding/pending:
+    get:
+      tags: [Onboarding]
+      summary: List pending applications
+      description: |
+        Returns all applications awaiting review, ordered oldest-first.
+        Requires role: **secretary**, **admin**, or **president**.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Pending applications returned
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApplicationSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /onboarding/{application_id}:
+    get:
+      tags: [Onboarding]
+      summary: Get application detail
+      description: |
+        Returns full application detail including uploaded documents.
+        Requires role: **secretary**, **admin**, or **president**.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ApplicationId'
+      responses:
+        '200':
+          description: Application returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationOut'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /onboarding/{application_id}/approve:
+    put:
+      tags: [Onboarding]
+      summary: Approve an application
+      description: |
+        Approves a pending application:
+        1. Finds or creates the **Flat** row from block/floor/flat_number.
+        2. Creates an active **Resident** record (BE-18 reused).
+        3. If a User account is linked, sets `account_status = active` and
+           populates `resident_id` (BE-21 reused).
+        4. Stamps the application as `approved` with reviewer info.
+        5. Writes an audit log entry.
+
+        Only **pending** applications can be approved.
+        Requires role: **secretary**, **admin**, or **president**.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ApplicationId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApproveApplication'
+            examples:
+              auto_flat:
+                summary: Auto-resolve flat from application data
+                value: {}
+              explicit_flat:
+                summary: Use a specific existing flat
+                value:
+                  flat_id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+      responses:
+        '200':
+          description: Application approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationOut'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Application is not pending
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              example:
+                detail: "Application is already 'approved' and cannot be approved again."
+
+  /onboarding/{application_id}/reject:
+    put:
+      tags: [Onboarding]
+      summary: Reject an application
+      description: |
+        Rejects a pending application with a mandatory reason.
+        No Resident or User record is created.
+        Writes an audit log entry.
+
+        Only **pending** applications can be rejected.
+        Requires role: **secretary**, **admin**, or **president**.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ApplicationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RejectApplication'
+            example:
+              rejection_reason: "Submitted documents are incomplete or illegible."
+      responses:
+        '200':
+          description: Application rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplicationOut'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Application is not pending
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorDetail'
+              example:
+                detail: "Application is already 'rejected' and cannot be rejected again."
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+components:
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    ApplicationId:
+      name: application_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: UUID of the onboarding application
+
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorDetail'
+          example:
+            detail: "Application '3fa85f64-5717-4562-b3fc-2c963f66afa6' not found."
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorDetail'
+          example:
+            detail: "Authentication required. Provide a Bearer token."
+    Forbidden:
+      description: Insufficient role
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorDetail'
+          example:
+            detail: "Access denied. Required role(s): secretary, admin, president. Your role: owner."
+    ValidationError:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail:
+                type: array
+                items:
+                  type: object
+
+  schemas:
+
+    OnboardingRegister:
+      type: object
+      required: [applicant_name, email, applicant_type, block, flat_number]
+      properties:
+        applicant_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: "Ravi Kumar"
+        email:
+          type: string
+          format: email
+          example: "ravi@jkr.com"
+        phone:
+          type: string
+          maxLength: 15
+          nullable: true
+          example: "9876543210"
+        applicant_type:
+          type: string
+          enum: [owner, tenant]
+          example: "owner"
+        block:
+          type: string
+          minLength: 1
+          maxLength: 10
+          example: "A"
+        floor:
+          type: string
+          maxLength: 10
+          nullable: true
+          example: "2"
+        flat_number:
+          type: string
+          minLength: 1
+          maxLength: 10
+          example: "201"
+        move_in_date:
+          type: string
+          nullable: true
+          description: ISO date string YYYY-MM-DD
+          example: "2024-01-15"
+        occupation:
+          type: string
+          maxLength: 100
+          nullable: true
+          example: "Engineer"
+        user_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Optional link to a pre-existing User account (BE-21)
+
+    DocumentUpload:
+      type: object
+      required: [application_id, document_type, file_reference]
+      properties:
+        application_id:
+          type: string
+          format: uuid
+        document_type:
+          type: string
+          enum: [id_proof, address_proof, ownership_deed, rental_agreement, other]
+          example: "id_proof"
+        file_reference:
+          type: string
+          maxLength: 500
+          example: "/uploads/ravi_id_proof.pdf"
+        original_filename:
+          type: string
+          maxLength: 255
+          nullable: true
+          example: "ravi_id_proof.pdf"
+
+    ApproveApplication:
+      type: object
+      properties:
+        flat_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: |
+            Optional. If omitted, the flat is resolved automatically from
+            the block/floor/flat_number stored on the application.
+
+    RejectApplication:
+      type: object
+      required: [rejection_reason]
+      properties:
+        rejection_reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          example: "Submitted documents are incomplete or illegible."
+
+    DocumentOut:
+      type: object
+      properties:
+        document_id:
+          type: string
+          format: uuid
+        application_id:
+          type: string
+          format: uuid
+        document_type:
+          type: string
+          enum: [id_proof, address_proof, ownership_deed, rental_agreement, other]
+        file_reference:
+          type: string
+        original_filename:
+          type: string
+          nullable: true
+        uploaded_at:
+          type: string
+          format: date-time
+
+    ApplicationOut:
+      type: object
+      properties:
+        application_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+          nullable: true
+        applicant_name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        applicant_type:
+          type: string
+          enum: [owner, tenant]
+        block:
+          type: string
+        floor:
+          type: string
+          nullable: true
+        flat_number:
+          type: string
+        flat_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Populated on approval
+        move_in_date:
+          type: string
+          nullable: true
+        occupation:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        rejection_reason:
+          type: string
+          nullable: true
+        reviewed_by:
+          type: string
+          format: uuid
+          nullable: true
+        reviewed_at:
+          type: string
+          format: date-time
+          nullable: true
+        resident_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Populated on approval when Resident row is created
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        documents:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentOut'
+
+    ApplicationSummary:
+      type: object
+      properties:
+        application_id:
+          type: string
+          format: uuid
+        applicant_name:
+          type: string
+        email:
+          type: string
+        applicant_type:
+          type: string
+          enum: [owner, tenant]
+        block:
+          type: string
+        flat_number:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        created_at:
+          type: string
+          format: date-time
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail:
+          type: string

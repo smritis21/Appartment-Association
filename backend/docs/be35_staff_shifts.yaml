@@ -1,0 +1,424 @@
+openapi: 3.1.0
+info:
+  title: Staff Attendance & Shift API — BE-35
+  description: Shift allocation and daily attendance for Jains Kences Retreat staff. A shift that overlaps
+    an existing shift for the same staff member on the same day is rejected with 409, and exactly one
+    attendance record is allowed per staff member per date.
+  version: 1.0.0
+servers:
+- url: http://localhost:8000/api/v1
+  description: Local development server
+tags:
+- name: Staff Shifts & Attendance
+  description: Shift allocation and daily attendance per staff member
+paths:
+  /staff/shifts:
+    post:
+      tags:
+      - Staff Shifts & Attendance
+      summary: Allocate a shift
+      operationId: allocate_shift_api_v1_staff_shifts_post
+      x-backlog-id: BE-35
+      x-user-story: As the Manager, I want endpoints so that attendance and shifts are stored.
+      description: Allocates a shift to a staff member on a given date. Rejects a shift that overlaps
+        another shift already allocated to the same staff member on the same day.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShiftCreate'
+      responses:
+        '201':
+          description: Shift allocated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShiftOut'
+        '404':
+          description: Staff member not found
+        '409':
+          description: Shift overlaps an existing shift for this staff member
+        '422':
+          description: Validation error — end_time not after start_time
+    get:
+      tags:
+      - Staff Shifts & Attendance
+      summary: List shifts
+      operationId: list_shifts_api_v1_staff_shifts_get
+      x-backlog-id: BE-35
+      x-user-story: As the Manager, I want endpoints so that attendance and shifts are stored.
+      description: Returns allocated shifts, newest date first. Optionally filter by staff member and/or
+        date.
+      parameters:
+      - name: staff_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Only return shifts for this staff member
+          title: Staff Id
+        description: Only return shifts for this staff member
+      - name: shift_date
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          description: Only return shifts on this date
+          title: Shift Date
+        description: Only return shifts on this date
+      - name: skip
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Skip
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 100
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ShiftOut'
+                title: Response List Shifts Api V1 Staff Shifts Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /staff/attendance:
+    post:
+      tags:
+      - Staff Shifts & Attendance
+      summary: Record daily attendance
+      operationId: mark_attendance_api_v1_staff_attendance_post
+      x-backlog-id: BE-35
+      x-user-story: As the Manager, I want endpoints so that attendance and shifts are stored.
+      description: Records a staff member's attendance for a single day. Exactly one attendance record
+        is allowed per staff member per date — a second call for the same day returns 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttendanceCreate'
+      responses:
+        '201':
+          description: Attendance recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceOut'
+        '400':
+          description: shift_id does not belong to this staff member
+        '404':
+          description: Staff member or shift not found
+        '409':
+          description: Attendance already recorded for this staff member on this date
+        '422':
+          description: Validation error — status not one of the allowed values
+    get:
+      tags:
+      - Staff Shifts & Attendance
+      summary: List attendance records
+      operationId: list_attendance_api_v1_staff_attendance_get
+      x-backlog-id: BE-35
+      x-user-story: As the Manager, I want endpoints so that attendance and shifts are stored.
+      description: Returns attendance records, newest date first. Optionally filter by staff member, status,
+        and/or a date range.
+      parameters:
+      - name: staff_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Only return records for this staff member
+          title: Staff Id
+        description: Only return records for this staff member
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: present / absent / half_day / on_leave
+          title: Status
+        description: present / absent / half_day / on_leave
+      - name: date_from
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          description: Only records on/after this date
+          title: Date From
+        description: Only records on/after this date
+      - name: date_to
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          description: Only records on/before this date
+          title: Date To
+        description: Only records on/before this date
+      - name: skip
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Skip
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 100
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AttendanceOut'
+                title: Response List Attendance Api V1 Staff Attendance Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    AttendanceCreate:
+      properties:
+        staff_id:
+          type: string
+          title: Staff Id
+          description: UUID of the staff member
+        attendance_date:
+          type: string
+          format: date
+          title: Attendance Date
+        status:
+          type: string
+          enum:
+          - present
+          - absent
+          - half_day
+          - on_leave
+          title: Status
+        shift_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Shift Id
+          description: Shift this attendance record is against, if any
+        notes:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Notes
+      type: object
+      required:
+      - staff_id
+      - attendance_date
+      - status
+      title: AttendanceCreate
+    AttendanceOut:
+      properties:
+        attendance_id:
+          type: string
+          title: Attendance Id
+        staff_id:
+          type: string
+          title: Staff Id
+        attendance_date:
+          type: string
+          format: date
+          title: Attendance Date
+        status:
+          type: string
+          enum:
+          - present
+          - absent
+          - half_day
+          - on_leave
+          title: Status
+        shift_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Shift Id
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+        marked_at:
+          type: string
+          format: date-time
+          title: Marked At
+      type: object
+      required:
+      - attendance_id
+      - staff_id
+      - attendance_date
+      - status
+      - marked_at
+      title: AttendanceOut
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    ShiftCreate:
+      properties:
+        staff_id:
+          type: string
+          title: Staff Id
+          description: UUID of the staff member this shift is allocated to
+        shift_date:
+          type: string
+          format: date
+          title: Shift Date
+        start_time:
+          type: string
+          format: time
+          title: Start Time
+        end_time:
+          type: string
+          format: time
+          title: End Time
+        shift_type:
+          anyOf:
+          - type: string
+            maxLength: 30
+          - type: 'null'
+          title: Shift Type
+          description: e.g. morning, evening, night
+        notes:
+          anyOf:
+          - type: string
+            maxLength: 500
+          - type: 'null'
+          title: Notes
+      type: object
+      required:
+      - staff_id
+      - shift_date
+      - start_time
+      - end_time
+      title: ShiftCreate
+    ShiftOut:
+      properties:
+        shift_id:
+          type: string
+          title: Shift Id
+        staff_id:
+          type: string
+          title: Staff Id
+        shift_date:
+          type: string
+          format: date
+          title: Shift Date
+        start_time:
+          type: string
+          format: time
+          title: Start Time
+        end_time:
+          type: string
+          format: time
+          title: End Time
+        shift_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Shift Type
+        notes:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notes
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+      type: object
+      required:
+      - shift_id
+      - staff_id
+      - shift_date
+      - start_time
+      - end_time
+      - created_at
+      - updated_at
+      title: ShiftOut
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

@@ -1,0 +1,278 @@
+openapi: 3.0.3
+info:
+  title: Residents API — BE-18
+  description: Resident Management API for Jains Kences Retreat Apartment Association Management System
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Residents
+    description: Create, read, update, delete, and search residents
+
+paths:
+
+  /residents:
+    get:
+      tags: [Residents]
+      summary: List all residents
+      description: Returns a paginated list of residents. Optionally filter by status.
+      parameters:
+        - name: skip
+          in: query
+          schema: { type: integer, default: 0, minimum: 0 }
+          description: Number of records to skip
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+          description: Maximum number of records to return
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, inactive, moved_out]
+          description: Filter by resident status
+      responses:
+        "200":
+          description: List of residents
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ResidentSummary" }
+
+    post:
+      tags: [Residents]
+      summary: Create a new resident
+      description: Creates a resident with optional family members and emergency contacts. The flat_id must already exist.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResidentCreate" }
+            example:
+              flat_id: "uuid-of-existing-flat"
+              name: "Ravi Kumar"
+              phone: "9876543210"
+              occupation: "Engineer"
+              move_in_date: "2024-01-15"
+              status: "active"
+              family_members:
+                - name: "Priya Kumar"
+                  relation: "spouse"
+                  phone: "9876543211"
+              emergency_contacts:
+                - name: "Suresh Kumar"
+                  relationship: "father"
+                  phone: "9876543212"
+      responses:
+        "201":
+          description: Resident created successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResidentOut" }
+        "404":
+          description: Flat not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+        "422":
+          description: Validation error
+
+  /residents/search:
+    get:
+      tags: [Residents]
+      summary: Search residents
+      description: Case-insensitive search across resident name and phone number.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 2 }
+          description: Search term (name or phone)
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, minimum: 1, maximum: 200 }
+      responses:
+        "200":
+          description: Matching residents
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ResidentSummary" }
+        "422":
+          description: Query too short (minimum 2 characters)
+
+  /residents/{resident_id}:
+    get:
+      tags: [Residents]
+      summary: Get resident by ID
+      description: Returns full resident profile including flat, family members, and emergency contacts.
+      parameters:
+        - name: resident_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Resident found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResidentOut" }
+        "404":
+          description: Resident not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+
+    put:
+      tags: [Residents]
+      summary: Update a resident
+      description: Partially updates a resident. Only provided fields are changed.
+      parameters:
+        - name: resident_id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResidentUpdate" }
+            example:
+              name: "Ravi Kumar Updated"
+              status: "inactive"
+      responses:
+        "200":
+          description: Resident updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResidentOut" }
+        "404":
+          description: Resident or flat not found
+        "422":
+          description: Validation error
+
+    delete:
+      tags: [Residents]
+      summary: Delete a resident
+      description: Permanently deletes a resident and all linked family members and emergency contacts.
+      parameters:
+        - name: resident_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Resident deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail: { type: string }
+        "404":
+          description: Resident not found
+
+components:
+  schemas:
+
+    FlatOut:
+      type: object
+      properties:
+        flat_id:          { type: string }
+        block:            { type: string }
+        floor:            { type: string, nullable: true }
+        flat_number:      { type: string }
+        ownership_type:   { type: string, enum: [owned, rented], nullable: true }
+        occupancy_status: { type: string, enum: [occupied, vacant], nullable: true }
+
+    FamilyMemberCreate:
+      type: object
+      required: [name]
+      properties:
+        name:     { type: string }
+        relation: { type: string, nullable: true }
+        phone:    { type: string, nullable: true }
+
+    FamilyMemberOut:
+      allOf:
+        - $ref: "#/components/schemas/FamilyMemberCreate"
+        - type: object
+          properties:
+            member_id:   { type: string }
+            resident_id: { type: string }
+
+    EmergencyContactCreate:
+      type: object
+      required: [name, phone]
+      properties:
+        name:         { type: string }
+        relationship: { type: string, nullable: true }
+        phone:        { type: string }
+
+    EmergencyContactOut:
+      allOf:
+        - $ref: "#/components/schemas/EmergencyContactCreate"
+        - type: object
+          properties:
+            contact_id:  { type: string }
+            resident_id: { type: string }
+
+    ResidentCreate:
+      type: object
+      required: [flat_id, name]
+      properties:
+        flat_id:            { type: string }
+        name:               { type: string, minLength: 1, maxLength: 100 }
+        phone:              { type: string, nullable: true }
+        occupation:         { type: string, nullable: true }
+        move_in_date:       { type: string, format: date, nullable: true }
+        move_out_date:      { type: string, format: date, nullable: true }
+        status:             { type: string, enum: [active, inactive, moved_out], default: active }
+        family_members:     { type: array, items: { $ref: "#/components/schemas/FamilyMemberCreate" } }
+        emergency_contacts: { type: array, items: { $ref: "#/components/schemas/EmergencyContactCreate" } }
+
+    ResidentUpdate:
+      type: object
+      properties:
+        name:          { type: string, nullable: true }
+        phone:         { type: string, nullable: true }
+        occupation:    { type: string, nullable: true }
+        move_in_date:  { type: string, format: date, nullable: true }
+        move_out_date: { type: string, format: date, nullable: true }
+        status:        { type: string, enum: [active, inactive, moved_out], nullable: true }
+        flat_id:       { type: string, nullable: true }
+
+    ResidentSummary:
+      type: object
+      properties:
+        resident_id: { type: string }
+        name:        { type: string }
+        phone:       { type: string, nullable: true }
+        status:      { type: string, enum: [active, inactive, moved_out] }
+        flat_id:     { type: string }
+        flat:        { $ref: "#/components/schemas/FlatOut" }
+
+    ResidentOut:
+      type: object
+      properties:
+        resident_id:        { type: string }
+        name:               { type: string }
+        phone:              { type: string, nullable: true }
+        occupation:         { type: string, nullable: true }
+        move_in_date:       { type: string, format: date, nullable: true }
+        move_out_date:      { type: string, format: date, nullable: true }
+        status:             { type: string, enum: [active, inactive, moved_out] }
+        flat_id:            { type: string }
+        flat:               { $ref: "#/components/schemas/FlatOut" }
+        family_members:     { type: array, items: { $ref: "#/components/schemas/FamilyMemberOut" } }
+        emergency_contacts: { type: array, items: { $ref: "#/components/schemas/EmergencyContactOut" } }
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail: { type: string }

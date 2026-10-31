@@ -1,0 +1,419 @@
+openapi: 3.1.0
+info:
+  title: AI/ML Analytics API — BE-41
+  description: A reusable analytics layer over the data each module already produces. Every figure is
+    computed server-side with plain statistics — least-squares trend, z-score anomaly detection, and weighted
+    risk scoring — so the endpoints are deterministic, free and work offline. An optional language model
+    may reword the summary sentence only; it never produces or alters a number, and summary_source reports
+    which path ran.
+  version: 1.0.0
+servers:
+- url: http://localhost:8000/api/v1
+  description: Local development server
+tags:
+- name: AI Analytics
+  description: Reusable trend, anomaly, forecast and risk layer over existing module data
+paths:
+  /analytics/metrics:
+    get:
+      tags:
+      - AI Analytics
+      summary: List analysable metrics
+      operationId: list_metrics_api_v1_analytics_metrics_get
+      x-backlog-id: BE-41
+      x-user-story: As the Association President, I want one analytics layer across modules, so that insight
+        logic is not duplicated in every feature.
+      description: Returns every metric the insights endpoint understands, with the module each one is
+        sourced from. Clients should read this rather than hard-coding metric names, so new metrics appear
+        automatically.
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/MetricInfo'
+                type: array
+                title: Response List Metrics Api V1 Analytics Metrics Get
+  /analytics/insights:
+    get:
+      tags:
+      - AI Analytics
+      summary: Insights for one metric
+      operationId: get_insights_api_v1_analytics_insights_get
+      x-backlog-id: BE-41
+      x-user-story: As the Association President, I want one analytics layer across modules, so that insight
+        logic is not duplicated in every feature.
+      description: 'Runs the shared statistics over a registered metric and returns one uniform envelope:
+        the monthly series, a moving average, trend direction and percent change, z-score anomalies, a
+        linear forecast for the next 3 months, and a plain-English summary.
+
+
+        Every figure is computed deterministically on the server with no external service. If an optional
+        AI provider is configured it is used only to reword the summary sentence — `summary_source` reports
+        which path produced the text.'
+      parameters:
+      - name: metric
+        in: query
+        required: true
+        schema:
+          type: string
+          description: Metric name from GET /analytics/metrics
+          title: Metric
+        description: Metric name from GET /analytics/metrics
+      - name: months
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 24
+          minimum: 3
+          description: How many calendar months of history to analyse
+          default: 6
+          title: Months
+        description: How many calendar months of history to analyse
+      responses:
+        '200':
+          description: Insight generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsightOut'
+        '400':
+          description: Unknown metric
+        '422':
+          description: months outside the allowed range
+  /analytics/risk/{kind}:
+    get:
+      tags:
+      - AI Analytics
+      summary: Ranked risk list
+      operationId: get_risk_api_v1_analytics_risk__kind__get
+      x-backlog-id: BE-41
+      x-user-story: As the Association President, I want one analytics layer across modules, so that insight
+        logic is not duplicated in every feature.
+      description: Scores and ranks records by weighted risk, highest first, each with a low/medium/high
+        band and the raw factors the score came from.
+      parameters:
+      - name: kind
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Kind
+      responses:
+        '200':
+          description: Risk list generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RiskOut'
+        '400':
+          description: Unknown risk kind
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    AnomalyOut:
+      properties:
+        period:
+          type: string
+          title: Period
+        label:
+          type: string
+          title: Label
+        value:
+          type: number
+          title: Value
+        z_score:
+          type: number
+          title: Z Score
+        kind:
+          type: string
+          enum:
+          - spike
+          - dip
+          title: Kind
+      type: object
+      required:
+      - period
+      - label
+      - value
+      - z_score
+      - kind
+      title: AnomalyOut
+    ForecastPoint:
+      properties:
+        period:
+          type: string
+          title: Period
+        label:
+          type: string
+          title: Label
+        value:
+          type: number
+          title: Value
+      type: object
+      required:
+      - period
+      - label
+      - value
+      title: ForecastPoint
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    InsightOut:
+      properties:
+        metric:
+          type: string
+          title: Metric
+        label:
+          type: string
+          title: Label
+        module:
+          type: string
+          title: Module
+        unit:
+          type: string
+          title: Unit
+        months:
+          type: integer
+          title: Months
+          description: Number of historical months covered by `series`
+        series:
+          items:
+            $ref: '#/components/schemas/SeriesPoint'
+          type: array
+          title: Series
+          default: []
+        smoothed:
+          items:
+            type: number
+          type: array
+          title: Smoothed
+          description: Moving average over `series`, same length
+          default: []
+        trend:
+          $ref: '#/components/schemas/TrendOut'
+        anomalies:
+          items:
+            $ref: '#/components/schemas/AnomalyOut'
+          type: array
+          title: Anomalies
+          default: []
+        forecast:
+          items:
+            $ref: '#/components/schemas/ForecastPoint'
+          type: array
+          title: Forecast
+          default: []
+        summary:
+          type: string
+          title: Summary
+          description: Plain-English headline
+        summary_source:
+          type: string
+          enum:
+          - template
+          - llm
+          title: Summary Source
+          description: '''template'' when computed offline, ''llm'' when reworded by a model'
+        generated_at:
+          type: string
+          format: date-time
+          title: Generated At
+      type: object
+      required:
+      - metric
+      - label
+      - module
+      - unit
+      - months
+      - trend
+      - summary
+      - summary_source
+      - generated_at
+      title: InsightOut
+      description: The uniform insight envelope returned for every metric.
+    MetricInfo:
+      properties:
+        metric:
+          type: string
+          title: Metric
+          description: Identifier to pass to /analytics/insights
+        label:
+          type: string
+          title: Label
+          description: Human-readable name
+        module:
+          type: string
+          title: Module
+          description: Backlog module this metric is sourced from
+        unit:
+          type: string
+          title: Unit
+          description: What the values count, e.g. 'complaints', 'INR'
+        description:
+          type: string
+          title: Description
+      type: object
+      required:
+      - metric
+      - label
+      - module
+      - unit
+      - description
+      title: MetricInfo
+      description: One entry in the metric registry — what can be asked for.
+    RiskItemOut:
+      properties:
+        id:
+          type: string
+          title: Id
+        label:
+          type: string
+          title: Label
+        score:
+          type: number
+          maximum: 100.0
+          minimum: 0.0
+          title: Score
+          description: 0-100, higher means higher risk
+        band:
+          type: string
+          enum:
+          - low
+          - medium
+          - high
+          title: Band
+        factors:
+          type: object
+          title: Factors
+          description: The raw inputs the score was computed from
+          default: {}
+      type: object
+      required:
+      - id
+      - label
+      - score
+      - band
+      title: RiskItemOut
+      description: One ranked entry in a risk list.
+    RiskOut:
+      properties:
+        kind:
+          type: string
+          title: Kind
+        label:
+          type: string
+          title: Label
+        module:
+          type: string
+          title: Module
+        items:
+          items:
+            $ref: '#/components/schemas/RiskItemOut'
+          type: array
+          title: Items
+          default: []
+        summary:
+          type: string
+          title: Summary
+        summary_source:
+          type: string
+          enum:
+          - template
+          - llm
+          title: Summary Source
+        generated_at:
+          type: string
+          format: date-time
+          title: Generated At
+      type: object
+      required:
+      - kind
+      - label
+      - module
+      - summary
+      - summary_source
+      - generated_at
+      title: RiskOut
+    SeriesPoint:
+      properties:
+        period:
+          type: string
+          title: Period
+          description: Month in YYYY-MM form
+        label:
+          type: string
+          title: Label
+          description: Human-readable month label, e.g. 'Aug 2026'
+        value:
+          type: number
+          title: Value
+      type: object
+      required:
+      - period
+      - label
+      - value
+      title: SeriesPoint
+    TrendOut:
+      properties:
+        direction:
+          type: string
+          enum:
+          - up
+          - down
+          - flat
+          title: Direction
+        change_pct:
+          type: number
+          title: Change Pct
+          description: Percent change, second half vs first half
+        slope:
+          type: number
+          title: Slope
+          description: Least-squares slope per period
+      type: object
+      required:
+      - direction
+      - change_pct
+      - slope
+      title: TrendOut
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

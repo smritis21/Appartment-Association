@@ -1,0 +1,63 @@
+openapi: 3.0.3
+info:
+  title: Staff Workload API — BE-15
+  description: >
+    Staff Workload API for Jains Kences Retreat Apartment Association
+    Management System. Serves the Apartment Manager a per-staff-member view
+    of current and completed complaint load.
+
+    Counts are derived entirely from complaint assignments (Complaint.assigned_to
+    and Complaint.status) — no separate workload table is maintained:
+      assigned_count  = complaints currently open (assigned / in_progress)
+      completed_count = complaints resolved or closed by that staff member
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Staff
+    description: Staff workload derived from complaint assignments
+
+paths:
+
+  /staff/workload:
+    get:
+      tags: [Staff]
+      summary: Staff workload
+      description: >
+        Returns assigned (currently open) and completed complaint counts
+        for every staff member, sorted by name. Staff members with no
+        assignments yet are included with zero counts.
+      responses:
+        "200":
+          description: Workload returned successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StaffWorkloadOut" }
+              example:
+                - staff_id: "10dd7189-a7df-4ad4-b739-cf636b84a53a"
+                  name: "Raju Kumar"
+                  role: "maintenance"
+                  assigned_count: 2
+                  completed_count: 1
+                - staff_id: "abe5e02e-5834-484f-a177-596f0adef62c"
+                  name: "Suresh Patil"
+                  role: "electrician"
+                  assigned_count: 0
+                  completed_count: 1
+
+components:
+  schemas:
+
+    StaffWorkloadOut:
+      type: object
+      properties:
+        staff_id:        { type: string }
+        name:            { type: string }
+        role:            { type: string, description: "e.g. maintenance, electrician, plumber, security" }
+        assigned_count:  { type: integer, description: "Complaints currently assigned/in_progress" }
+        completed_count: { type: integer, description: "Complaints resolved or closed" }

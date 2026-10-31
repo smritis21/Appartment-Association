@@ -1,0 +1,349 @@
+openapi: 3.0.3
+info:
+  title: Emergency Alert Broadcast API — BE-19
+  description: >
+    Emergency Alert Broadcast API for Jains Kences Retreat Apartment
+    Association Management System. Lets the Association President broadcast a
+    critical alert to every resident and records delivery status for each
+    recipient individually.
+
+    Recipients are all residents with status "active". Residents who are
+    "inactive" or "moved_out" are excluded — broadcasting a fire alarm to
+    someone who left the society months ago is noise, not safety. An optional
+    target_block scopes the broadcast to a single block/tower.
+
+    Delivery is recorded per recipient in the alert_deliveries table, one row
+    per resident per alert. Each row carries a status (sent / failed), the
+    channel used, a timestamp on success, and a reason on failure. A recipient
+    the notifier cannot reach (no phone number on record) is recorded as a
+    failed delivery rather than aborting the broadcast, so the remaining
+    residents are still notified and the misses can be followed up in person.
+
+    The whole broadcast is a single transaction: either the alert and its full
+    delivery log are written, or neither is. Messages are simulated through
+    services/mock_notifier.py — the seam where a real SMS/push provider would
+    be plugged in.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Alerts
+    description: Emergency broadcasts and per-recipient delivery logs
+
+paths:
+
+  /alerts/emergency:
+    post:
+      tags: [Alerts]
+      summary: Broadcast an emergency alert
+      description: >
+        Creates an emergency alert, delivers it to every active resident (or
+        every active resident in target_block), and writes one delivery record
+        per recipient. Returns the alert together with its full delivery log.
+
+        Severity is fixed to "emergency" by the endpoint and cannot be set by
+        the caller, so a mis-set field can never downgrade a society-wide
+        alarm to a notice.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EmergencyAlertCreate" }
+            example:
+              title: "Fire Drill — Evacuate Now"
+              message: "Please evacuate via the nearest stairwell and assemble in the car park."
+              target_block: null
+              raised_by: "3f1a9c22-5f0e-4a0b-9c11-7c8e4a1d2b33"
+      responses:
+        "201":
+          description: Alert broadcast and delivery logged
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AlertOut" }
+              example:
+                alert_id: "0b4c8e21-1d6a-4f7e-93a2-8e1f5c9d2a44"
+                title: "Fire Drill — Evacuate Now"
+                message: "Please evacuate via the nearest stairwell and assemble in the car park."
+                severity: "emergency"
+                target_block: null
+                raised_by: "3f1a9c22-5f0e-4a0b-9c11-7c8e4a1d2b33"
+                recipient_count: 3
+                sent_count: 2
+                failed_count: 1
+                created_at: "2026-08-01T09:30:00Z"
+                deliveries:
+                  - delivery_id: "b21c7f90-4a3e-4c1d-8f22-0d9e6b3a1c55"
+                    resident_id: "9c2e1b44-7a5d-4e88-b3f1-2a6c8d0e4f77"
+                    recipient_name: "Arjun Mehta"
+                    recipient_phone: "9876500001"
+                    flat_number: "A-101"
+                    channel: "sms"
+                    status: "sent"
+                    failure_reason: null
+                    delivered_at: "2026-08-01T09:30:00Z"
+                  - delivery_id: "c33d8a01-5b4f-4d2e-9a33-1e0f7c4b2d66"
+                    resident_id: "1d3f2c55-8b6e-4f99-c4a2-3b7d9e1f5a88"
+                    recipient_name: "Priya Sharma"
+                    recipient_phone: "9876500002"
+                    flat_number: "B-204"
+                    channel: "sms"
+                    status: "sent"
+                    failure_reason: null
+                    delivered_at: "2026-08-01T09:30:00Z"
+                  - delivery_id: "d44e9b12-6c5a-4e3f-ab44-2f1a8d5c3e77"
+                    resident_id: "2e4a3d66-9c7f-4aaa-d5b3-4c8e0f2a6b99"
+                    recipient_name: "Ravi Kumar"
+                    recipient_phone: null
+                    flat_number: "C-302"
+                    channel: "sms"
+                    status: "failed"
+                    failure_reason: "No phone number on record for this resident."
+                    delivered_at: null
+        "400":
+          description: Unknown target block, or no active residents to notify
+          content:
+            application/json:
+              examples:
+                unknown_block:
+                  value: { detail: "Block 'Z' does not exist." }
+                no_recipients:
+                  value: { detail: "No active residents found in the society — nothing to broadcast to." }
+              schema: { $ref: "#/components/schemas/HTTPError" }
+        "422":
+          description: Validation error — missing title, or message under 10 characters
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HTTPValidationError" }
+              example:
+                detail:
+                  - loc: ["body", "message"]
+                    msg: "String should have at least 10 characters"
+                    type: "string_too_short"
+
+  /alerts:
+    get:
+      tags: [Alerts]
+      summary: List emergency alerts
+      description: >
+        Returns past emergency alerts newest-first with their delivery counts.
+        Delivery rows are omitted — a society-wide broadcast can carry
+        hundreds — so use /alerts/{alert_id}/deliveries for the per-recipient log.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+          description: Maximum number of alerts to return.
+      responses:
+        "200":
+          description: Alerts returned successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AlertSummaryOut" }
+              example:
+                - alert_id: "0b4c8e21-1d6a-4f7e-93a2-8e1f5c9d2a44"
+                  title: "Fire Drill — Evacuate Now"
+                  message: "Please evacuate via the nearest stairwell."
+                  severity: "emergency"
+                  target_block: null
+                  raised_by: "3f1a9c22-5f0e-4a0b-9c11-7c8e4a1d2b33"
+                  recipient_count: 3
+                  sent_count: 2
+                  failed_count: 1
+                  created_at: "2026-08-01T09:30:00Z"
+
+  /alerts/{alert_id}:
+    get:
+      tags: [Alerts]
+      summary: Get an alert with its delivery log
+      parameters:
+        - name: alert_id
+          in: path
+          required: true
+          schema: { type: string }
+          description: UUID of the alert
+      responses:
+        "200":
+          description: Alert returned successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AlertOut" }
+        "404":
+          description: Alert not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HTTPError" }
+              example: { detail: "Alert '0b4c8e21' not found." }
+
+  /alerts/{alert_id}/deliveries:
+    get:
+      tags: [Alerts]
+      summary: Per-recipient delivery status
+      description: >
+        Returns the delivery record for every recipient of this alert, sorted
+        by name. Pass status=failed to get just the residents who did not
+        receive it — the list someone would work through by phone or in person
+        after a broadcast.
+      parameters:
+        - name: alert_id
+          in: path
+          required: true
+          schema: { type: string }
+          description: UUID of the alert
+        - name: status
+          in: query
+          required: false
+          schema: { type: string, enum: [pending, sent, failed] }
+          description: Only return deliveries with this status.
+      responses:
+        "200":
+          description: Delivery log returned successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AlertDeliveryOut" }
+              example:
+                - delivery_id: "d44e9b12-6c5a-4e3f-ab44-2f1a8d5c3e77"
+                  resident_id: "2e4a3d66-9c7f-4aaa-d5b3-4c8e0f2a6b99"
+                  recipient_name: "Ravi Kumar"
+                  recipient_phone: null
+                  flat_number: "C-302"
+                  channel: "sms"
+                  status: "failed"
+                  failure_reason: "No phone number on record for this resident."
+                  delivered_at: null
+        "404":
+          description: Alert not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HTTPError" }
+
+components:
+  schemas:
+
+    EmergencyAlertCreate:
+      type: object
+      required: [title, message]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: "Short headline, e.g. 'Fire Drill — Evacuate Now'. Whitespace-only is rejected."
+        message:
+          type: string
+          minLength: 10
+          maxLength: 2000
+          description: >
+            Full alert text including instructions for residents. The
+            10-character floor exists because a two-word broadcast to every
+            resident is far more likely to be a misfire than a real alert.
+        target_block:
+          type: string
+          maxLength: 10
+          nullable: true
+          description: >
+            Restrict the broadcast to one block/tower (e.g. "A"). Case is
+            normalised to uppercase. Omit or send null to reach every active
+            resident. An unknown block is rejected with 400 rather than
+            silently broadcasting to nobody.
+        raised_by:
+          type: string
+          nullable: true
+          description: resident_id of the President raising the alert
+
+    AlertSummaryOut:
+      type: object
+      required: [alert_id, title, message, severity, recipient_count, sent_count, failed_count, created_at]
+      properties:
+        alert_id:        { type: string }
+        title:           { type: string }
+        message:         { type: string }
+        severity:
+          type: string
+          enum: [emergency, urgent, info]
+          description: "Always 'emergency' from this endpoint"
+        target_block:
+          type: string
+          nullable: true
+          description: "Block the broadcast was scoped to, or null for the whole society"
+        raised_by:       { type: string, nullable: true }
+        recipient_count: { type: integer, description: "Residents the alert was addressed to" }
+        sent_count:      { type: integer, description: "Deliveries the notifier accepted" }
+        failed_count:    { type: integer, description: "Deliveries that could not be made" }
+        created_at:      { type: string, format: date-time }
+
+    AlertOut:
+      allOf:
+        - $ref: "#/components/schemas/AlertSummaryOut"
+        - type: object
+          properties:
+            deliveries:
+              type: array
+              description: "Per-recipient delivery log, sorted by recipient name"
+              items: { $ref: "#/components/schemas/AlertDeliveryOut" }
+
+    AlertDeliveryOut:
+      type: object
+      required: [delivery_id, resident_id, channel, status]
+      properties:
+        delivery_id: { type: string }
+        resident_id:
+          type: string
+          description: >
+            The resident this row is for. Not a foreign key — the delivery log
+            must survive a resident being removed, otherwise the audit trail
+            develops holes exactly where someone would want to inspect it.
+        recipient_name:
+          type: string
+          nullable: true
+          description: "Snapshotted at broadcast time so the log stays readable later"
+        recipient_phone: { type: string, nullable: true }
+        flat_number:     { type: string, nullable: true }
+        channel:
+          type: string
+          enum: [sms, email, in_app]
+          description: "Channel used. Only 'sms' is wired up today."
+        status:
+          type: string
+          enum: [pending, sent, failed]
+          description: >
+            'pending' exists so the schema already fits a future background
+            worker; today the fan-out is synchronous and every row lands on
+            sent/failed before the response is returned.
+        failure_reason:
+          type: string
+          nullable: true
+          description: "Populated only on failure, e.g. 'No phone number on record for this resident.'"
+        delivered_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: "Set only on a successful delivery"
+
+    HTTPError:
+      type: object
+      properties:
+        detail: { type: string }
+
+    HTTPValidationError:
+      type: object
+      properties:
+        detail:
+          type: array
+          items: { $ref: "#/components/schemas/ValidationError" }
+
+    ValidationError:
+      type: object
+      properties:
+        loc:
+          type: array
+          items: { type: string }
+        msg:  { type: string }
+        type: { type: string }

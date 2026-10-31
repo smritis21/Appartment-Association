@@ -1,0 +1,139 @@
+openapi: 3.0.3
+info:
+  title: Maintenance Scheduling API — BE-17
+  description: >
+    Maintenance Scheduling API for Jains Kences Retreat Apartment
+    Association Management System. Lets the Apartment Manager plan and
+    store maintenance events — date, time and which facilities are
+    affected — and retrieve them.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Maintenance
+    description: Plan and retrieve scheduled maintenance events
+
+paths:
+
+  /maintenance/schedule:
+    post:
+      tags: [Maintenance]
+      summary: Schedule planned maintenance
+      description: Stores a planned maintenance event — date, time and the facilities it affects.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MaintenanceScheduleCreate" }
+            example:
+              title: "Water tank cleaning"
+              scheduled_date: "2026-09-05"
+              scheduled_time: "09:00:00"
+              affected_facilities: ["Water Tank", "Overhead Pipeline"]
+              notes: "Residents advised to store water in advance"
+              scheduled_by: "manager-1"
+      responses:
+        "201":
+          description: Maintenance scheduled successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MaintenanceScheduleOut" }
+              example:
+                schedule_id: "2d0fe4df-5aed-4e5f-bb7d-d0c92dccf5fd"
+                title: "Water tank cleaning"
+                scheduled_date: "2026-09-05"
+                scheduled_time: "09:00:00"
+                affected_facilities: ["Water Tank", "Overhead Pipeline"]
+                notes: "Residents advised to store water in advance"
+                scheduled_by: "manager-1"
+                created_at: "2026-08-01T11:07:59"
+        "422":
+          description: Validation error — missing required field or empty affected_facilities list
+
+    get:
+      tags: [Maintenance]
+      summary: List scheduled maintenance
+      description: Returns all scheduled maintenance events, soonest first.
+      responses:
+        "200":
+          description: Scheduled events returned successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/MaintenanceScheduleOut" }
+
+  /maintenance/schedule/{schedule_id}:
+    get:
+      tags: [Maintenance]
+      summary: Get a scheduled maintenance event
+      parameters:
+        - name: schedule_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Scheduled event returned successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MaintenanceScheduleOut" }
+        "404":
+          description: Scheduled event not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorDetail" }
+              example:
+                detail: "Maintenance schedule 'nope' not found."
+
+components:
+  schemas:
+
+    MaintenanceScheduleCreate:
+      type: object
+      required: [title, scheduled_date, scheduled_time, affected_facilities]
+      properties:
+        title:
+          type: string
+          maxLength: 150
+        scheduled_date:
+          type: string
+          format: date
+        scheduled_time:
+          type: string
+          format: time
+        affected_facilities:
+          type: array
+          items: { type: string }
+          minItems: 1
+          description: "At least one facility, e.g. ['Gym', 'Pool']"
+        notes:
+          type: string
+          maxLength: 500
+          nullable: true
+        scheduled_by:
+          type: string
+          nullable: true
+          description: Identifier of who scheduled this (e.g. the Manager's id) — not validated yet
+
+    MaintenanceScheduleOut:
+      type: object
+      properties:
+        schedule_id:          { type: string }
+        title:                { type: string }
+        scheduled_date:       { type: string, format: date }
+        scheduled_time:       { type: string, format: time }
+        affected_facilities:
+          type: array
+          items: { type: string }
+        notes:                { type: string, nullable: true }
+        scheduled_by:         { type: string, nullable: true }
+        created_at:           { type: string, format: date-time }
+
+    ErrorDetail:
+      type: object
+      properties:
+        detail: { type: string }

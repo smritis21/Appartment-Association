@@ -1,0 +1,27 @@
+# Environment
+.env
+
+# SQLite database file
+*.db
+*.db-journal
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# Pytest
+.pytest_cache/
+htmlcov/
+.coverage
+
+# IDE
+.vscode/
+.idea/
+
+# Uploaded documents are user data, not source.
+uploads/

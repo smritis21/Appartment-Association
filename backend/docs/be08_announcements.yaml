@@ -1,0 +1,213 @@
+openapi: 3.0.3
+info:
+  title: Announcement Publishing API
+  description: Endpoints to create and update announcements.
+  version: 1.0.0
+
+paths:
+  /api/v1/announcements/:
+    get:
+      summary: Retrieve announcements
+      description: Returns published announcements with metadata. Supports pagination and current/historical filter.
+      tags:
+        - Announcements
+      parameters:
+        - name: skip
+          in: query
+          description: Number of records to skip for pagination.
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: limit
+          in: query
+          description: Maximum number of records to return.
+          required: false
+          schema:
+            type: integer
+            default: 100
+        - name: filter_type
+          in: query
+          description: Filter announcements by 'all', 'current', or 'historical'.
+          required: false
+          schema:
+            type: string
+            enum: [all, current, historical]
+            default: all
+      responses:
+        '200':
+          description: A list of announcements
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AnnouncementResponse'
+    post:
+      summary: Create an announcement
+      description: Creates a new notice/announcement with title, body, author, and visibility.
+      tags:
+        - Announcements
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnnouncementCreate'
+      responses:
+        '201':
+          description: Announcement created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnnouncementResponse'
+        '422':
+          description: Validation Error (Missing title/body)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+
+  /api/v1/announcements/{announcement_id}:
+    put:
+      summary: Update an announcement
+      description: Updates an existing announcement by its ID.
+      tags:
+        - Announcements
+      parameters:
+        - name: announcement_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnnouncementUpdate'
+      responses:
+        '200':
+          description: Announcement updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnnouncementResponse'
+        '404':
+          description: Announcement not found
+        '422':
+          description: Validation Error
+
+components:
+  schemas:
+    AnnouncementCreate:
+      type: object
+      required:
+        - title
+        - body
+      properties:
+        title:
+          type: string
+          description: The title of the announcement.
+        body:
+          type: string
+          description: The body/content of the announcement.
+        author:
+          type: string
+          description: The author of the announcement.
+        visibility:
+          type: string
+          description: Visibility level, e.g., 'public', 'residents_only'. Default is 'public'.
+          default: public
+        category:
+          type: string
+          description: Category of the announcement, e.g., 'Maintenance', 'Event'.
+        pinned:
+          type: boolean
+          description: Pinned notices sort above the rest of the list.
+          default: false
+        status:
+          type: string
+          description: >-
+            'published' or 'draft'. Drafts are stored but kept out of the
+            resident list and out of search results.
+          enum: [published, draft]
+          default: published
+        scheduled_for:
+          type: string
+          format: date-time
+          nullable: true
+          description: >-
+            When the notice becomes visible to residents. Null publishes
+            immediately; a future timestamp holds it back until then.
+
+    AnnouncementUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        body:
+          type: string
+        author:
+          type: string
+        visibility:
+          type: string
+        category:
+          type: string
+        pinned:
+          type: boolean
+        status:
+          type: string
+          enum: [published, draft]
+        scheduled_for:
+          type: string
+          format: date-time
+          nullable: true
+
+    AnnouncementResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        body:
+          type: string
+        author:
+          type: string
+        visibility:
+          type: string
+        category:
+          type: string
+        pinned:
+          type: boolean
+        status:
+          type: string
+          enum: [published, draft]
+        scheduled_for:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    HTTPValidationError:
+      type: object
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            properties:
+              loc:
+                type: array
+                items:
+                  type: string
+              msg:
+                type: string
+              type:
+                type: string

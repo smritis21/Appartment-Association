@@ -1,0 +1,212 @@
+openapi: 3.0.3
+info:
+  title: Complaint Feedback API — BE-20
+  description: >
+    Complaint Feedback API for Jains Kences Retreat Apartment Association
+    Management System. Lets a resident rate how their complaint was handled,
+    storing a 1–5 star rating and an optional comment.
+
+    Feedback is only accepted for complaints that are resolved or closed, and
+    only within the feedback window — 7 days from the date the complaint was
+    resolved. The window is anchored to the audit-trail entry that moved the
+    complaint into resolved/closed (BE-16), not to the record's last-modified
+    timestamp, because updated_at moves on any write and an unrelated edit
+    would otherwise silently extend or reset a resident's window. Complaints
+    that reached a completed status without going through the progress
+    endpoint (seed/import data) fall back to updated_at.
+
+    Feedback is one-shot: a complaint can be rated once. A second submission
+    returns 409 and leaves the original untouched. This is enforced by a
+    UNIQUE constraint on complaint_id as well as a service-layer check, so two
+    concurrent submissions cannot both succeed.
+
+    Ratings are stored in their own table rather than as columns on the
+    complaint, because most complaints are never rated and "has this been
+    rated?" is then a row-existence check.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Complaints
+    description: Resident ratings on resolved complaints
+
+paths:
+
+  /complaints/{complaint_id}/feedback:
+    post:
+      tags: [Complaints]
+      summary: Rate a resolved complaint
+      description: >
+        Stores a resident's star rating and optional comment for a complaint.
+
+        A comment is optional — requiring prose in order to leave a star
+        rating only suppresses the response rate. Whitespace-only comments are
+        normalised to null rather than stored as blank text, so the UI never
+        renders an empty comment.
+      parameters:
+        - name: complaint_id
+          in: path
+          required: true
+          schema: { type: string }
+          description: UUID of the complaint being rated
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ComplaintFeedbackCreate" }
+            example:
+              rating: 5
+              comment: "Quick and clean work. Thank you!"
+              submitted_by: "9c2e1b44-7a5d-4e88-b3f1-2a6c8d0e4f77"
+      responses:
+        "201":
+          description: Feedback stored successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ComplaintFeedbackOut" }
+              example:
+                feedback_id: "7a1e4c90-2b8d-4f31-9c52-6d0a3e8b1f44"
+                complaint_id: "b67e98fa-9328-4331-ab9e-2ad89af59839"
+                rating: 5
+                comment: "Quick and clean work. Thank you!"
+                submitted_by: "9c2e1b44-7a5d-4e88-b3f1-2a6c8d0e4f77"
+                submitted_at: "2026-08-01T10:12:00Z"
+        "400":
+          description: The complaint is not resolved or closed yet
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HTTPError" }
+              example:
+                detail: >-
+                  Complaint 'b67e98fa' is 'in_progress'. Feedback can only be
+                  left on resolved or closed complaints.
+        "404":
+          description: Complaint not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HTTPError" }
+              example: { detail: "Complaint 'b67e98fa' not found." }
+        "409":
+          description: This complaint has already been rated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HTTPError" }
+              example:
+                detail: "Feedback has already been submitted for complaint 'b67e98fa'."
+        "410":
+          description: >
+            The feedback window has closed. 410 Gone rather than 400, because
+            the request was well-formed and simply arrived too late — the
+            distinction lets the UI say "this closed on the 20th" instead of
+            "bad request".
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HTTPError" }
+              example:
+                detail: >-
+                  The feedback window for complaint 'b67e98fa' closed on
+                  2026-07-20 (7 days after it was resolved).
+        "422":
+          description: Validation error — rating missing or outside 1–5
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HTTPValidationError" }
+              example:
+                detail:
+                  - loc: ["body", "rating"]
+                    msg: "Input should be less than or equal to 5"
+                    type: "less_than_equal"
+
+    get:
+      tags: [Complaints]
+      summary: Get the feedback left on a complaint
+      description: >
+        Returns the rating and comment stored for this complaint. Responds
+        with 404 both when the complaint does not exist and when it exists but
+        has not been rated; the detail message distinguishes the two.
+      parameters:
+        - name: complaint_id
+          in: path
+          required: true
+          schema: { type: string }
+          description: UUID of the complaint
+      responses:
+        "200":
+          description: Feedback returned successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ComplaintFeedbackOut" }
+        "404":
+          description: Complaint not found, or it has no feedback yet
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HTTPError" }
+              examples:
+                no_feedback:
+                  value: { detail: "No feedback has been submitted for complaint 'b67e98fa'." }
+                no_complaint:
+                  value: { detail: "Complaint 'b67e98fa' not found." }
+
+components:
+  schemas:
+
+    ComplaintFeedbackCreate:
+      type: object
+      required: [rating]
+      properties:
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+          description: "Star rating from 1 (poor) to 5 (excellent)"
+        comment:
+          type: string
+          maxLength: 1000
+          nullable: true
+          description: >
+            Optional free-text comment. Whitespace-only values are stored as
+            null.
+        submitted_by:
+          type: string
+          nullable: true
+          description: >
+            resident_id of the person leaving the feedback. Un-constrained
+            until auth lands and the caller is known from the token rather
+            than the body.
+
+    ComplaintFeedbackOut:
+      type: object
+      required: [feedback_id, complaint_id, rating, submitted_at]
+      properties:
+        feedback_id:  { type: string }
+        complaint_id:
+          type: string
+          description: "Unique across the feedback table — a complaint is rated at most once"
+        rating:       { type: integer, minimum: 1, maximum: 5 }
+        comment:      { type: string, nullable: true }
+        submitted_by: { type: string, nullable: true }
+        submitted_at: { type: string, format: date-time }
+
+    HTTPError:
+      type: object
+      properties:
+        detail: { type: string }
+
+    HTTPValidationError:
+      type: object
+      properties:
+        detail:
+          type: array
+          items: { $ref: "#/components/schemas/ValidationError" }
+
+    ValidationError:
+      type: object
+      properties:
+        loc:
+          type: array
+          items: { type: string }
+        msg:  { type: string }
+        type: { type: string }

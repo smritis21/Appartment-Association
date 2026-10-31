@@ -1,0 +1,284 @@
+openapi: 3.0.3
+info:
+  title: Authentication & Accounts API - BE-21
+  description: |
+    Authentication and account management API for Jains Kences Retreat.
+
+    - New accounts are created with `account_status = pending` and cannot
+      log in until an administrator activates them.
+    - Successful login returns a signed JWT (HS256). Include it on
+      protected requests as `Authorization: Bearer <token>`.
+    - The JWT payload contains `sub` (user_id), `role`, and `exp`.
+    - Passwords are bcrypt-hashed and never returned in any response.
+    - Reset tokens are single-use and expire after 60 minutes.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Authentication
+    description: Login, registration, password management, and profile
+
+paths:
+
+  /auth/register:
+    post:
+      tags: [Authentication]
+      summary: Register a new account
+      description: |
+        Creates a new user account with `account_status = pending`.
+        The account cannot log in until an administrator activates it.
+        Email addresses are case-insensitive and must be unique.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserRegister" }
+            example:
+              email: "ravi.kumar@jkr.com"
+              password: "securepass123"
+              full_name: "Ravi Kumar"
+              role: "owner"
+      responses:
+        "201":
+          description: Account created (pending activation)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserProfileOut" }
+        "409":
+          description: Email address already registered
+        "422":
+          description: Validation error
+
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: Login and receive a JWT
+      description: |
+        Validates credentials and returns a signed JWT access token.
+        Pending and suspended accounts are rejected with 403.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserLogin" }
+            example:
+              email: "ravi.kumar@jkr.com"
+              password: "securepass123"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenOut" }
+        "401":
+          description: Incorrect email or password
+        "403":
+          description: Account is pending or suspended
+
+  /auth/forgot-password:
+    post:
+      tags: [Authentication]
+      summary: Request a password-reset token
+      description: |
+        Issues a single-use reset token valid for 60 minutes.
+        Always returns the same message regardless of whether the email
+        exists, to prevent user enumeration.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ForgotPassword" }
+            example:
+              email: "ravi.kumar@jkr.com"
+      responses:
+        "200":
+          description: Request acknowledged
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MessageOut" }
+
+  /auth/reset-password:
+    post:
+      tags: [Authentication]
+      summary: Reset password using a reset token
+      description: |
+        Consumes the token from POST /auth/forgot-password and sets a new
+        password. The token is cleared after use and cannot be reused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResetPassword" }
+            example:
+              token: "550e8400-e29b-41d4-a716-446655440000"
+              new_password: "newSecurePass456"
+      responses:
+        "200":
+          description: Password reset successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MessageOut" }
+        "400":
+          description: Token is invalid, already used, or expired
+        "422":
+          description: Validation error
+
+  /auth/change-password:
+    post:
+      tags: [Authentication]
+      summary: Change password (authenticated)
+      description: |
+        Changes the password for the currently authenticated user.
+        Requires the correct current password as confirmation.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChangePassword" }
+            example:
+              current_password: "securepass123"
+              new_password: "newSecurePass456"
+      responses:
+        "200":
+          description: Password changed successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MessageOut" }
+        "401":
+          description: Missing/invalid token or current password is wrong
+        "422":
+          description: Validation error
+
+  /auth/profile:
+    get:
+      tags: [Authentication]
+      summary: Get own profile
+      description: Returns the profile of the currently authenticated user.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Profile returned successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserProfileOut" }
+        "401":
+          description: Missing or invalid token
+
+    put:
+      tags: [Authentication]
+      summary: Update own profile
+      description: |
+        Updates the profile of the currently authenticated user.
+        Only `full_name` can be changed via this endpoint.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserProfileUpdate" }
+            example:
+              full_name: "Ravi Kumar Sharma"
+      responses:
+        "200":
+          description: Profile updated successfully
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserProfileOut" }
+        "401":
+          description: Missing or invalid token
+        "422":
+          description: Validation error
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+
+    UserRegister:
+      type: object
+      required: [email, password, full_name]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          description: Minimum 8 characters. Never returned in any response.
+        full_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        role:
+          type: string
+          enum: [owner, tenant, president, secretary, admin, maintenance, security]
+          default: owner
+
+    UserLogin:
+      type: object
+      required: [email, password]
+      properties:
+        email:   { type: string, format: email }
+        password: { type: string }
+
+    TokenOut:
+      type: object
+      properties:
+        access_token:   { type: string, description: "Signed JWT" }
+        token_type:     { type: string, example: "bearer" }
+        user_id:        { type: string }
+        role:           { type: string, enum: [owner, tenant, president, secretary, admin, maintenance, security] }
+        account_status: { type: string, enum: [pending, active, suspended] }
+
+    UserProfileOut:
+      type: object
+      properties:
+        user_id:        { type: string }
+        email:          { type: string }
+        full_name:      { type: string }
+        role:           { type: string, enum: [owner, tenant, president, secretary, admin, maintenance, security] }
+        account_status: { type: string, enum: [pending, active, suspended] }
+        resident_id:    { type: string, nullable: true }
+        created_at:     { type: string, format: date-time }
+        updated_at:     { type: string, format: date-time }
+
+    UserProfileUpdate:
+      type: object
+      properties:
+        full_name: { type: string, minLength: 1, maxLength: 100 }
+
+    ChangePassword:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password: { type: string }
+        new_password:     { type: string, minLength: 8 }
+
+    ForgotPassword:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+
+    ResetPassword:
+      type: object
+      required: [token, new_password]
+      properties:
+        token:        { type: string, description: "UUID reset token from forgot-password" }
+        new_password: { type: string, minLength: 8 }
+
+    MessageOut:
+      type: object
+      properties:
+        detail: { type: string }
