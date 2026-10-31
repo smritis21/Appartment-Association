@@ -4,6 +4,18 @@ Full-stack society management app built for the Community Services Platform proj
 
 The frontend talks to a live FastAPI backend. Both run locally. Mock data is kept as an offline fallback - if the backend is unreachable, pages degrade gracefully instead of breaking.
 
+## Demo screenshots
+
+[![Apartment association management dashboard](docs/screenshots/01-dashboard.jpg)](docs/screenshots/01-dashboard.jpg)
+
+| Resident management | Complaint monitoring |
+|---|---|
+| [![Resident management](docs/screenshots/02-resident-management.jpg)](docs/screenshots/02-resident-management.jpg) | [![Complaint monitoring](docs/screenshots/05-complaint-monitoring.jpg)](docs/screenshots/05-complaint-monitoring.jpg) |
+
+| Payments | Community assistant |
+|---|---|
+| [![Payments](docs/screenshots/06-payments.jpg)](docs/screenshots/06-payments.jpg) | [![Community assistant](docs/screenshots/15-ai-assistant.jpg)](docs/screenshots/15-ai-assistant.jpg) |
+
 ## Tech stack
 
 **Frontend**
@@ -232,3 +244,13 @@ less clever.
 - The sidebar is role-aware - items you don't have access to are hidden rather than shown-then-redirecting.
 - The layout is responsive; the sidebar becomes an overlay drawer below the `md` breakpoint.
 - Data created via the UI (bookings, posts, payments, etc.) persists to the backend database when the backend is running. Without the backend, it only lasts until page refresh.
+
+## Contributors
+
+This was a group project. Thanks to:
+
+- [ekxnsh22005](https://github.com/ekxnsh22005)
+- [MokshadaN](https://github.com/MokshadaN)
+- [smritis21](https://github.com/smritis21)
+- [Saharshjain78](https://github.com/Saharshjain78)
+- [morningstar0521](https://github.com/morningstar0521)
