@@ -1,11 +1,11 @@
 <img src="assets/banner.svg" alt="Jains Kences Retreat: Apartment Association Management System" width="100%">
 
 <p align="center">
-<img src="https://img.shields.io/badge/Team-71-7c93ff?style=flat-square&labelColor=0b0d12" alt="Team 71">
-<img src="https://img.shields.io/badge/Project-Community%20Services%20Platform-5eead4?style=flat-square&labelColor=0b0d12" alt="Community Services Platform">
-<img src="https://img.shields.io/badge/Frontend-React%2019%20%2B%20Vite%208-7c93ff?style=flat-square&labelColor=0b0d12&logo=react&logoColor=white" alt="React 19 + Vite 8">
-<img src="https://img.shields.io/badge/Backend-FastAPI%20%2B%20SQLite-5eead4?style=flat-square&labelColor=0b0d12&logo=fastapi&logoColor=white" alt="FastAPI + SQLite">
-<img src="https://img.shields.io/badge/Node-%E2%89%A5%2020.19-7c93ff?style=flat-square&labelColor=0b0d12&logo=nodedotjs&logoColor=white" alt="Node >= 20.19">
+<img src="https://img.shields.io/badge/Team-71-2a4a32?style=flat-square" alt="Team 71">
+<img src="https://img.shields.io/badge/Project-Community%20Services%20Platform-3f6b4a?style=flat-square" alt="Community Services Platform">
+<img src="https://img.shields.io/badge/Frontend-React%2019%20%2B%20Vite%208-2a4a32?style=flat-square&logo=react&logoColor=white" alt="React 19 + Vite 8">
+<img src="https://img.shields.io/badge/Backend-FastAPI%20%2B%20SQLite-3f6b4a?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI + SQLite">
+<img src="https://img.shields.io/badge/Node-%E2%89%A5%2020.19-c58a2b?style=flat-square&logo=nodedotjs&logoColor=white" alt="Node >= 20.19">
 </p>
 
 <p align="center">
@@ -16,9 +16,18 @@
 
 ## About
 
-A full-stack society management app built for the **Community Services Platform** project (Team 71). It covers everything a residential society needs day to day: complaints, visitor entry, maintenance, billing, community life (temple, marketplace, events, forum, corners), payments, and an AI assistant that actually does things.
+A full-stack society management app built for the **Community Services Platform** project (Team 71) for Jains Kences Retreat. It covers everything a residential society needs day to day: complaints, visitor entry, maintenance, billing, community life (temple, marketplace, events, forum, corners), payments, and an AI assistant that actually does things.
 
 The frontend talks to a **live FastAPI backend**, and both run locally. Mock data is kept as an offline fallback, so if the backend is unreachable the pages degrade gracefully instead of breaking.
+
+<table>
+<tr>
+<td width="25%" align="center"><b>42</b><br><sub>backend stories</sub></td>
+<td width="25%" align="center"><b>199</b><br><sub>API endpoints</sub></td>
+<td width="25%" align="center"><b>1,720</b><br><sub>automated tests</sub></td>
+<td width="25%" align="center"><b>7</b><br><sub>user roles (RBAC)</sub></td>
+</tr>
+</table>
 
 <table>
 <tr>
@@ -41,30 +50,35 @@ Answers from live records and files complaints, passes and bookings, always afte
 
 ## Demo
 
-<a href="docs/screenshots/01-dashboard.jpg"><img src="docs/screenshots/01-dashboard.jpg" alt="Apartment association management dashboard" width="100%"></a>
-
 <table>
 <tr>
-<td width="50%" valign="top">
-<a href="docs/screenshots/02-resident-management.jpg"><img src="docs/screenshots/02-resident-management.jpg" alt="Resident management" width="100%"></a>
-<p align="center"><sub><b>Resident management</b></sub></p>
+<td width="33%" valign="top">
+<a href="docs/screenshots/01-dashboard.jpg"><img src="docs/screenshots/01-dashboard.jpg" alt="Dashboard" width="100%"></a>
+<p align="center"><sub><b>Dashboard</b></sub></p>
 </td>
-<td width="50%" valign="top">
+<td width="33%" valign="top">
+<a href="docs/screenshots/02-resident-management.jpg"><img src="docs/screenshots/02-resident-management.jpg" alt="Resident management" width="100%"></a>
+<p align="center"><sub><b>Residents</b></sub></p>
+</td>
+<td width="33%" valign="top">
 <a href="docs/screenshots/05-complaint-monitoring.jpg"><img src="docs/screenshots/05-complaint-monitoring.jpg" alt="Complaint monitoring" width="100%"></a>
-<p align="center"><sub><b>Complaint monitoring</b></sub></p>
+<p align="center"><sub><b>Complaints</b></sub></p>
 </td>
 </tr>
 <tr>
-<td width="50%" valign="top">
+<td width="33%" valign="top">
 <a href="docs/screenshots/06-payments.jpg"><img src="docs/screenshots/06-payments.jpg" alt="Payments" width="100%"></a>
 <p align="center"><sub><b>Payments</b></sub></p>
 </td>
-<td width="50%" valign="top">
+<td width="33%" valign="top">
 <a href="docs/screenshots/15-ai-assistant.jpg"><img src="docs/screenshots/15-ai-assistant.jpg" alt="Community assistant" width="100%"></a>
-<p align="center"><sub><b>Community assistant</b></sub></p>
+<p align="center"><sub><b>AI assistant</b></sub></p>
 </td>
+<td width="33%"></td>
 </tr>
 </table>
+
+<p align="center"><sub>Click any screenshot to view it full size.</sub></p>
 
 * * *
 
@@ -72,9 +86,9 @@ Answers from live records and files complaints, passes and bookings, always afte
 
 | | |
 | --- | --- |
-| **Frontend** | ![React](https://img.shields.io/badge/-React%2019-61DAFB?style=flat-square&logo=react&logoColor=black) ![Vite](https://img.shields.io/badge/-Vite%208-646CFF?style=flat-square&logo=vite&logoColor=white) ![Material UI](https://img.shields.io/badge/-Material%20UI%20v9-007FFF?style=flat-square&logo=mui&logoColor=white) ![React Router](https://img.shields.io/badge/-React%20Router%20v7-CA4245?style=flat-square&logo=reactrouter&logoColor=white) ![React Hook Form](https://img.shields.io/badge/-React%20Hook%20Form-EC5990?style=flat-square&logo=reacthookform&logoColor=white) |
-| **Backend** | ![FastAPI](https://img.shields.io/badge/-FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white) ![SQLite](https://img.shields.io/badge/-SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white) ![SQLAlchemy](https://img.shields.io/badge/-SQLAlchemy-D71F00?style=flat-square&logo=sqlalchemy&logoColor=white) ![Uvicorn](https://img.shields.io/badge/-Uvicorn-499848?style=flat-square&logoColor=white) |
-| **Quality** | ![Pytest](https://img.shields.io/badge/-Pytest-0A9EDC?style=flat-square&logo=pytest&logoColor=white) ![Oxlint](https://img.shields.io/badge/-Oxlint-7c93ff?style=flat-square&logoColor=white) |
+| **Frontend** | ![React](https://img.shields.io/badge/-React%2019-3f6b4a?style=flat-square&logo=react&logoColor=white) ![Vite](https://img.shields.io/badge/-Vite%208-3f6b4a?style=flat-square&logo=vite&logoColor=white) ![Material UI](https://img.shields.io/badge/-Material%20UI%20v9-3f6b4a?style=flat-square&logo=mui&logoColor=white) ![React Router](https://img.shields.io/badge/-React%20Router%20v7-3f6b4a?style=flat-square&logo=reactrouter&logoColor=white) ![React Hook Form](https://img.shields.io/badge/-React%20Hook%20Form-3f6b4a?style=flat-square&logo=reacthookform&logoColor=white) |
+| **Backend** | ![FastAPI](https://img.shields.io/badge/-FastAPI-2a4a32?style=flat-square&logo=fastapi&logoColor=white) ![SQLite](https://img.shields.io/badge/-SQLite-2a4a32?style=flat-square&logo=sqlite&logoColor=white) ![SQLAlchemy](https://img.shields.io/badge/-SQLAlchemy-2a4a32?style=flat-square&logo=sqlalchemy&logoColor=white) ![Uvicorn](https://img.shields.io/badge/-Uvicorn-2a4a32?style=flat-square&logoColor=white) |
+| **Quality** | ![Pytest](https://img.shields.io/badge/-Pytest-c58a2b?style=flat-square&logo=pytest&logoColor=white) ![Oxlint](https://img.shields.io/badge/-Oxlint-c58a2b?style=flat-square&logoColor=white) |
 
 > No TypeScript and no state management library. Just React context for auth, onboarding, residents and complaints, and local component state everywhere else.
 
@@ -174,7 +188,10 @@ Auth is mocked on the frontend. Pick any account below with the password `passwo
 | `assistant` | AI community assistant (see below) |
 | `home` | Public landing page shown before login |
 
-### API service layer
+<details>
+<summary><b>API service layer</b></summary>
+
+<br>
 
 All backend communication goes through `src/services/`. Each file maps to a backend domain and handles snake_case to camelCase translation, so pages never deal with raw API shapes.
 
@@ -191,6 +208,8 @@ All backend communication goes through `src/services/`. Each file maps to a back
 
 Every service call falls back to mock data if the backend is unreachable (NetworkError), so the app stays usable standalone.
 
+</details>
+
 * * *
 
 ## The AI assistant
@@ -204,7 +223,10 @@ Find it under **AI Assistant** in the sidebar (`/assistant`). It reads and write
 | **Holds a short conversation** | Say "there's no water" and it asks where; reply "A-402" and it completes the request rather than starting over. |
 | **Takes you places** | "Take me to my complaints" navigates. |
 
-### How the understanding works
+<details>
+<summary><b>How the understanding works</b></summary>
+
+<br>
 
 Messages are interpreted by a model when one is configured, and by a deterministic keyword engine when one is not. Both feed the same machinery underneath, and the model's answer is treated as a suggestion rather than a decision:
 
@@ -214,22 +236,39 @@ Messages are interpreted by a model when one is configured, and by a determinist
 
 Those properties are covered by tests in `tests/test_be42_assistant.py`, including one asserting that a model returning arbitrary text cannot change which action is taken.
 
-### Looking things up
+</details>
+
+<details>
+<summary><b>Looking things up</b></summary>
+
+<br>
 
 Beyond the curated actions, the assistant can read from the rest of the API. `app/services/assistant_reads.py` builds a catalogue of readable topics from the application's own `GET` routes, so a new endpoint becomes answerable without anyone writing an intent for it. Those reads go back through HTTP with a token minted for the signed-in user, so each endpoint applies its own permissions: the assistant sees exactly what that user would see.
 
 Only `GET` routes are exposed this way. Writes stay curated and confirmed.
 
-### The analytics layer
+</details>
+
+<details>
+<summary><b>The analytics layer</b></summary>
+
+<br>
 
 `aiml.py` computes trend, anomalies and forecasts from the real series, and `analytics_service.build_insight()` assembles them. **A model never produces a number.** When one is configured it only rewords a summary sentence that was already calculated, and any failure falls back to the template. That is why the figures on the analytics screen can be trusted whether or not a key is set.
 
-### Turning a model on
+</details>
+
+<details>
+<summary><b>Turning a model on</b></summary>
+
+<br>
 
 Entirely optional; see the AI block in `backend/.env.example`. Google AI Studio's free tier works and speaks the OpenAI protocol, so no SDK is needed. Without it the assistant still runs, using the deterministic engine.
 
 > [!NOTE]
 > Two things to expect on a free tier: replies take a couple of seconds, and hammering it returns HTTP 429, at which point the assistant quietly falls back to the keyword engine. An answer that worked a moment ago may suddenly look less clever.
+
+</details>
 
 * * *
 
@@ -277,10 +316,10 @@ This was a group project. Thanks to everyone who built it:
 
 <table>
 <tr>
-<td align="center"><a href="https://github.com/ekxnsh22005"><img src="https://github.com/ekxnsh22005.png" width="80" alt="ekxnsh22005"><br><sub><b>ekxnsh22005</b></sub></a></td>
-<td align="center"><a href="https://github.com/MokshadaN"><img src="https://github.com/MokshadaN.png" width="80" alt="MokshadaN"><br><sub><b>MokshadaN</b></sub></a></td>
-<td align="center"><a href="https://github.com/smritis21"><img src="https://github.com/smritis21.png" width="80" alt="smritis21"><br><sub><b>smritis21</b></sub></a></td>
-<td align="center"><a href="https://github.com/Saharshjain78"><img src="https://github.com/Saharshjain78.png" width="80" alt="Saharshjain78"><br><sub><b>Saharshjain78</b></sub></a></td>
-<td align="center"><a href="https://github.com/morningstar0521"><img src="https://github.com/morningstar0521.png" width="80" alt="morningstar0521"><br><sub><b>morningstar0521</b></sub></a></td>
+<td align="center"><a href="https://github.com/ekxnsh22005"><img src="https://github.com/ekxnsh22005.png" width="64" alt="ekxnsh22005"><br><sub><b>ekxnsh22005</b></sub></a></td>
+<td align="center"><a href="https://github.com/MokshadaN"><img src="https://github.com/MokshadaN.png" width="64" alt="MokshadaN"><br><sub><b>MokshadaN</b></sub></a></td>
+<td align="center"><a href="https://github.com/smritis21"><img src="https://github.com/smritis21.png" width="64" alt="smritis21"><br><sub><b>smritis21</b></sub></a></td>
+<td align="center"><a href="https://github.com/Saharshjain78"><img src="https://github.com/Saharshjain78.png" width="64" alt="Saharshjain78"><br><sub><b>Saharshjain78</b></sub></a></td>
+<td align="center"><a href="https://github.com/morningstar0521"><img src="https://github.com/morningstar0521.png" width="64" alt="morningstar0521"><br><sub><b>morningstar0521</b></sub></a></td>
 </tr>
 </table>
