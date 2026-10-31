@@ -1,4 +1,4 @@
-<img src="assets/banner.svg" alt="Jains Kences Retreat: Apartment Association Management System" width="100%">
+<img src="banner.svg" alt="Jains Kences Retreat: Apartment Association Management System" width="100%">
 
 <p align="center">
 <img src="https://img.shields.io/badge/Team-71-2a4a32?style=flat-square" alt="Team 71">
